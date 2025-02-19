@@ -29,7 +29,7 @@ class Disco:
 
         return count
 
-class Node:
+class DiscoNode:
 
     def __init__(self, primes = (), offset = 0, dutycycle = 0.05) -> None:
         self.nodeClass = 0
@@ -74,7 +74,7 @@ class Test:
         for pair in self.primePairs:
             discoveries = [0] * max_iterations
             for _ in range(self.numTests):
-                disco = Disco([Node(pair[0]), Node(pair[1])])
+                disco = Disco([DiscoNode(pair[0]), DiscoNode(pair[1])])
                 discoveries[disco.getLatency()] += 1
 
             acummDiscoveries = list(accumulate(discoveries))
@@ -87,15 +87,15 @@ class Test:
 
 # test = Test([ ((37, 43), (37, 43)) ])
 
-# test = Test([ ((37, 43), (37, 43)),
-#               ((23, 157), (29, 67)),
-#               ((23, 157), (23, 157)),
-#             ])
-
-test = Test([ ((61, 73), (61, 73)),
-              ((97, 103), (47, 53)),
-              ((191, 211), (37, 43)),
+test = Test([ ((37, 43), (37, 43)),
+              ((23, 157), (29, 67)),
+              ((23, 157), (23, 157)),
             ])
+
+# test = Test([ ((61, 73), (61, 73)),
+#               ((97, 103), (47, 53)),
+#               ((191, 211), (37, 43)),
+#             ])
 
 results = test.run()
 
