@@ -2,12 +2,12 @@ from functools import reduce
 from itertools import accumulate
 import math
 import random
-
-max_iterations = 10000
+import simpy
+import simpy.core
 
 class SearchLightNode:
 
-    def __init__(self, slotOffset = 0, dutycycle = 0.05, alignmentOffset = -1) -> None:
+    def __init__(self, slotOffset = 0, dutycycle = 0.05, alignmentOffset = 0) -> None:
         self.setDutyCycle(dutycycle)
         self._probePos = 0
         self._turnedOn = False
@@ -37,6 +37,8 @@ class SearchLightNode:
 
     def restart(self) -> None:
         self._slotOffset = random.randint(0, math.ceil(self._t / 2) + 1)
+        self.latency = 1_000_000_000
+        self._alignmentOffset = random.random()
 
 
     def update(self, count, verbose=False) -> None:
@@ -57,6 +59,37 @@ class SearchLightNode:
                 self._turnedOn = True
             elif verbose:
                 print('-', end='')
+    def run(self, env, beaconPipe, listenPipe):
+        startingTime = self._alignmentOffset + self._slotOffset
+        yield env.timeout(startingTime)
+        nextPivot = startingTime
+        found = False
+        while not found:
+            yield env.timeout(nextPivot - env.now)
+            msg = env.now
+            beaconPipe.put(msg)
+            yield env.timeout(1)
+            msg = env.now
+            beaconPipe.put(msg)
+
+            self.updateProbePos()
+            nextProbe = nextPivot + self._probePos
+
+            yield env.timeout(nextProbe - env.now)
+            msg = env.now
+            beaconPipe.put(msg)
+            yield env.timeout(1)
+            msg = env.now
+            beaconPipe.put(msg)
+
+            while listenPipe.items:
+                msg = yield listenPipe.get()
+                if nextProbe <= msg <= (nextProbe + 1) or nextPivot <= msg <= (nextPivot + 1):
+                    self.latency = msg
+                    found = True
+
+
+            nextPivot += self._t
 
 
 class SearchLightStripedNode(SearchLightNode):
@@ -65,7 +98,7 @@ class SearchLightStripedNode(SearchLightNode):
 
 
 class SearchLightRandomNode(SearchLightNode):
-    def __init__(self, slotOffset = 0, dutycycle = 0.05, alignmentOffset = -1):
+    def __init__(self, slotOffset = 0, dutycycle = 0.05, alignmentOffset = 0):
         super().__init__(slotOffset, dutycycle, alignmentOffset)
         self._numbers = list(range(1, math.floor(self._t / 2) + 1))
         random.shuffle(self._numbers)
@@ -86,7 +119,7 @@ class SearchLightRandomNode(SearchLightNode):
         self._probePos = self._numbers[self._index]
 
 class SearchLightStripedRandomNode(SearchLightNode):
-    def __init__(self, slotOffset = 0, dutycycle = 0.05, alignmentOffset = -1):
+    def __init__(self, slotOffset = 0, dutycycle = 0.05, alignmentOffset = 0):
         super().__init__(slotOffset, dutycycle, alignmentOffset)
         self._numbers = list(range(1, math.floor(self._t / 2) + 1, 2))
         random.shuffle(self._numbers)
@@ -109,15 +142,16 @@ class SearchLightStripedRandomNode(SearchLightNode):
 
 class DiscoNode:
 
-    def __init__(self, primes = (), slotOffset = 0, dutycycle = 0.05, alignmentOffset=-1) -> None:
+    def __init__(self, primes = (), slotOffset = 0, dutycycle = 0.05) -> None:
         self.nodeClass = 0
         self._primes = primes
         if not self._primes:
             self.setDutyCycle(dutycycle)
-        if not slotOffset:
-            self.restart()
-        self._slotOffset = slotOffset
-        self._alignmentOffset = alignmentOffset
+
+        self.restart()
+
+        if slotOffset != 0:
+            self._slotOffset = slotOffset
 
     def setDutyCycle(self, dutycycle = 0.05) -> None:
         possiblePrimes = [(23, 157), (29, 67), (31, 59), (37, 43)]
@@ -134,77 +168,104 @@ class DiscoNode:
 
     def restart(self) -> None:
         self._slotOffset = random.randint(0, reduce(lambda x, y: x * y, self._primes))
+        self.latency = 1_000_000_000
+        self._alignmentOffset = random.random()
+
+    def run(self, env, beaconPipe, listenPipe):
+        startingTime = self._alignmentOffset + self._slotOffset
+        greatestPrime = max(self._primes)
+        smallestPrime = min(self._primes)
+        nextGreatPrime = startingTime
+        nextSmallPrime = startingTime
+        turnOns = []
+        yield env.timeout(startingTime)
+
+        found = False
+        # print(env.now)
+        while not found:
+            if nextSmallPrime < nextGreatPrime:
+                print(env.now)
+                yield env.timeout(nextSmallPrime - env.now)
+                msg = env.now
+                turnOns.append(msg)
+                beaconPipe.put(msg)
+                yield env.timeout(1)
+                msg = env.now
+                beaconPipe.put(msg)
+            else:
+                yield env.timeout(nextGreatPrime - env.now)
+                msg = env.now
+                turnOns.append(msg)
+                beaconPipe.put(msg)
+                yield env.timeout(1)
+                msg = env.now
+                beaconPipe.put(msg)
+
+            # print('a', env.now)
+            while listenPipe.items:
+                msg = yield listenPipe.get()
+                for e in turnOns:
+                    if e <= msg <= e+1:
+                        print("EEEE")
+                        found = True
+                # print(msg, nextGreatPrime, nextSmallPrime)
+                # if nextSmallPrime <= msg <= (nextSmallPrime + 1) or nextGreatPrime <= msg <= (nextGreatPrime + 1):
+                #     self.latency = msg
+                #     # print("LOL", env.now)
+                #     found = True
+            # print('b', env.now)
 
 
-    def isTurnedOn(self) -> bool:
-        return self._turnedOn
+            if nextSmallPrime <= nextGreatPrime:
+                nextSmallPrime += smallestPrime
 
-    def update(self, count) -> None:
-        if self._alignmentOffset != -1:
-            count = int(count / 2)
-        for prime in self._primes:
-            self._turnedOn = False
-            if (count - self._slotOffset) % prime == 0:
-                self._turnedOn = True
-                return
+            if nextSmallPrime >= nextGreatPrime:
+                nextGreatPrime += greatestPrime
+
 
 
 class Algorithm:
-    def __init__(self, nodes, name, aligned=True) -> None:
-        self._nodes = nodes
+    def __init__(self, nodeA, nodeB, name) -> None:
+        self._nodeA = nodeA
+        self._nodeB = nodeB
         self._name = name
-        self._aligned = aligned
 
     def getName(self) -> str:
         return self._name
 
-    def getNodes(self):
-        return self._nodes
+    def getLatency(self, maxTime):
+        self._nodeA.restart()
+        self._nodeB.restart()
+        env = simpy.Environment()
+        pipeA = simpy.Store(env)
+        pipeB = simpy.Store(env)
 
-    def getLatency(self):
-        if self._aligned:
-            return self.getAlignedLatency()
-        return self.getMissAlignedLatency()
+        env.process(self._nodeA.run(env, pipeA, pipeB))
+        env.process(self._nodeB.run(env, pipeB, pipeA))
 
-    def getAlignedLatency(self, max=max_iterations):
-        count = 0
-        found = False
-        while not found and count < max - 1:
-            found = True
-            for node in self._nodes:
-                node.update(count)
-                if not node.isTurnedOn():
-                    found = False
-                    # break
+        env.run(until=maxTime)
 
-            count += 1
-
-        for node in self._nodes:
-            node.restart()
-
-        return count
-
-    def getMissAlignedLatency(self):
-        return int(self.getAlignedLatency(max_iterations*2) / 2)
+        return math.ceil(min(self._nodeA.latency, self._nodeB.latency, maxTime-1))
 
 
 class Test:
-    def __init__(self, algorithms, numTests = 1000) -> None:
+    def __init__(self, algorithms, numTests = 1000, maxTime = 2000) -> None:
         self.algorithms = algorithms
         self.numTests = numTests
         self.testResults = {}
+        self.maxTime = maxTime
 
     def run(self):
         for algorithm in self.algorithms:
-            discoveries = [0] * max_iterations
-            for _ in range(self.numTests):
-                latency = algorithm.getLatency()
+            discoveries = [0] * self.maxTime
+            for i in range(self.numTests):
+                # print(i)
+                latency = algorithm.getLatency(self.maxTime)
                 discoveries[latency] += 1
 
             accumDiscoveries = list(accumulate(discoveries))
 
             cdf = list(map(lambda x: x / self.numTests, accumDiscoveries))
             self.testResults[algorithm.getName()] = cdf
-
 
         return self.testResults

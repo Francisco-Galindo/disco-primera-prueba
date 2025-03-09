@@ -2,9 +2,10 @@
 
 pkgs.mkShell {
   buildInputs = [
-    pkgs.python312Packages.sympy
+    pkgs.python312Packages.simpy
   ];
   packages = with pkgs; [
     gnuplot
+    python312Packages.simpy
   ];
 }
