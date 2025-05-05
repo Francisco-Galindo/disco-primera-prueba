@@ -4,6 +4,7 @@ import math
 import random
 import simpy
 import simpy.core
+import simpy.util
 
 class SearchLightNode:
 
@@ -25,6 +26,9 @@ class SearchLightNode:
 
     def getOffset(self) -> int:
         return self._slotOffset
+
+    def getAlignment(self) -> float:
+        return self._alignmentOffset
 
     def updateProbePos(self):
         self._probePos = (self._probePos % math.floor(self._t / 2)) + 1
@@ -67,23 +71,23 @@ class SearchLightNode:
         while not found:
             yield env.timeout(nextPivot - env.now)
             msg = env.now
-            beaconPipe.put(msg)
+            beaconPipe.append(msg)
             yield env.timeout(1)
             msg = env.now
-            beaconPipe.put(msg)
+            beaconPipe.append(msg)
 
             self.updateProbePos()
             nextProbe = nextPivot + self._probePos
 
             yield env.timeout(nextProbe - env.now)
             msg = env.now
-            beaconPipe.put(msg)
+            beaconPipe.append(msg)
             yield env.timeout(1)
             msg = env.now
-            beaconPipe.put(msg)
+            beaconPipe.append(msg)
 
-            while listenPipe.items:
-                msg = yield listenPipe.get()
+            while listenPipe:
+                msg = listenPipe.pop()
                 if nextProbe <= msg <= (nextProbe + 1) or nextPivot <= msg <= (nextPivot + 1):
                     self.latency = msg
                     found = True
@@ -142,9 +146,10 @@ class SearchLightStripedRandomNode(SearchLightNode):
 
 class DiscoNode:
 
-    def __init__(self, primes = (), slotOffset = 0, dutycycle = 0.05) -> None:
+    def __init__(self, primes = (), slotOffset = 0, dutycycle = 0.05, name = 'A') -> None:
         self.nodeClass = 0
         self._primes = primes
+        self._name = name
         if not self._primes:
             self.setDutyCycle(dutycycle)
 
@@ -166,62 +171,66 @@ class DiscoNode:
     def getSlotOffset(self) -> int:
         return self._slotOffset
 
+    def getAlignment(self) -> float:
+        return self._alignmentOffset
+
+
     def restart(self) -> None:
-        self._slotOffset = random.randint(0, reduce(lambda x, y: x * y, self._primes))
+        self._slotOffset = 0
+        self._alignmentOffset = 0
+
+        if self._name == 'B':
+            self._slotOffset = random.randint(0, math.floor(reduce(lambda x, y: x * y, self._primes)))
+            n = random.randint(1, 1023)
+            self._alignmentOffset = n / (2**10)
+
         self.latency = 1_000_000_000
-        self._alignmentOffset = random.random()
 
     def run(self, env, beaconPipe, listenPipe):
-        startingTime = self._alignmentOffset + self._slotOffset
-        greatestPrime = max(self._primes)
-        smallestPrime = min(self._primes)
-        nextGreatPrime = startingTime
-        nextSmallPrime = startingTime
-        turnOns = []
-        yield env.timeout(startingTime)
+        smallPrime = max(self._primes)
+        bigPrime = min(self._primes)
+        timeToSmallPrime = 0
+        timeToBigPrime = 0
 
+        # if self._name == 'B':
+        #     print("AS")
         found = False
-        # print(env.now)
+        lastTurnOn = 0
+        cnt = 0
         while not found:
-            if nextSmallPrime < nextGreatPrime:
-                print(env.now)
-                yield env.timeout(nextSmallPrime - env.now)
-                msg = env.now
-                turnOns.append(msg)
-                beaconPipe.put(msg)
-                yield env.timeout(1)
-                msg = env.now
-                beaconPipe.put(msg)
-            else:
-                yield env.timeout(nextGreatPrime - env.now)
-                msg = env.now
-                turnOns.append(msg)
-                beaconPipe.put(msg)
-                yield env.timeout(1)
-                msg = env.now
-                beaconPipe.put(msg)
+            waitingTime = min(timeToBigPrime, timeToSmallPrime)
+            yield env.timeout(waitingTime)
+            lastTurnOn = env.now
+            cnt += 1
+            # if self._name == 'B':
+            # print(self._name, lastTurnOn)
+            beaconPipe.append(lastTurnOn)
+            yield env.timeout(1)
+            beaconPipe.append(lastTurnOn+1)
 
-            # print('a', env.now)
-            while listenPipe.items:
-                msg = yield listenPipe.get()
-                for e in turnOns:
-                    if e <= msg <= e+1:
-                        print("EEEE")
-                        found = True
-                # print(msg, nextGreatPrime, nextSmallPrime)
-                # if nextSmallPrime <= msg <= (nextSmallPrime + 1) or nextGreatPrime <= msg <= (nextGreatPrime + 1):
-                #     self.latency = msg
-                #     # print("LOL", env.now)
-                #     found = True
-            # print('b', env.now)
+            timeToSmallPrime -= waitingTime + 1
+            timeToBigPrime -= waitingTime + 1
 
+            if timeToSmallPrime < 0:
+                timeToSmallPrime = smallPrime - 1
+            if timeToBigPrime < 0:
+                timeToBigPrime = bigPrime - 1
 
-            if nextSmallPrime <= nextGreatPrime:
-                nextSmallPrime += smallestPrime
+            while listenPipe:
+                msg = listenPipe.pop()
+                if lastTurnOn < msg < lastTurnOn + 1:
+                    found = True
+                    # if self._name == 'B':
+                    #     self.latency = msg - self._slotOffset
+                    # else:
+                    self.latency = msg - self._slotOffset
 
-            if nextSmallPrime >= nextGreatPrime:
-                nextGreatPrime += greatestPrime
-
+                    # # print('yea', self.latency)
+                    # dc = round(cnt / self.latency, 2)
+                    # # print(self._name, dc)
+                    # if dc > 0.9 and self._name == 'B':
+                    #     print('PAPU', lastTurnOn, env.now, self._alignmentOffset, self._slotOffset)
+                    break
 
 
 class Algorithm:
@@ -236,14 +245,19 @@ class Algorithm:
     def getLatency(self, maxTime):
         self._nodeA.restart()
         self._nodeB.restart()
+
+        offset = self._nodeB.getSlotOffset()
+        alignmentOffset = self._nodeB.getAlignment()
+
         env = simpy.Environment()
-        pipeA = simpy.Store(env)
-        pipeB = simpy.Store(env)
+        pipeA = []
+        pipeB = []
 
         env.process(self._nodeA.run(env, pipeA, pipeB))
-        env.process(self._nodeB.run(env, pipeB, pipeA))
+        # env.process(self._nodeB.run(env, pipeB, pipeA))
+        simpy.util.start_delayed(env, self._nodeB.run(env, pipeB, pipeA), offset + alignmentOffset)
 
-        env.run(until=maxTime)
+        env.run(until=maxTime+offset)
 
         return math.ceil(min(self._nodeA.latency, self._nodeB.latency, maxTime-1))
 
