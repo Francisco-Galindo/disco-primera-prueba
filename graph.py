@@ -14,16 +14,16 @@ maxTime = 2000
 #         "Disco [(37, 43), (37, 43)]"),
 # ], numTests=1, maxTime=maxTime)
 
-a = FedabNode(dutycycle=0.01, id=0)
-b = FedabNode(dutycycle=0.1, id=1)
+nodeA = FedabNode(dutycycle=0.01, id=0)
+nodeB = FedabNode(dutycycle=0.1, id=1)
 
-a.setNeigbors([b])
-b.setNeigbors([a])
+nodeA.setNeigbors([nodeB])
+nodeB.setNeigbors([nodeA])
 
 test = Test([
     Algorithm(
-        a,
-        b,
+        nodeA,
+        nodeB,
         "Fedabeo"),
 ], numTests=1000, maxTime=maxTime)
 

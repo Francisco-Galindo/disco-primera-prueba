@@ -56,6 +56,9 @@ class FedabNode:
     def getT(self) -> int:
         return self._n * self._m
 
+    def setSimDelay(self, t: float) -> None:
+        self._simDelay = t
+
     def addTxTime(self, newTime):
         # print('antes', self._extraTxTimes, self.id)
         self._extraTxTimes.append(newTime)
@@ -95,13 +98,14 @@ class FedabNode:
             # self._alignmentOffset = 0.2961743601654
             # self._slotOffset = 534
 
-    def txToNeighbors(self, nextListenAbsTime):
+    def txToNeighbors(self, nextListenAbsTime, currTime):
+        if currTime < self._simDelay:
+            return
+
         for neighbor in self.neighbors:
             if neighbor.listening:
                 neighbor.discovered.add(self.id)
                 neighbor.addTxTime(nextListenAbsTime)
-                # print('hello from', self.id, neighbor.id, nextListenAbsTime)
-                # print(f'hello from {self.id}, {neighbor.id}!\t do extra_tx at: {nextListenAbsTime}')
 
     def hasDiscoveredAllNeighbors(self):
         return len(self.neighbors) == len(self.discovered)
@@ -111,7 +115,6 @@ class FedabNode:
         yield env.timeout(startingTime)
 
         i = 0
-        # print('EEEEEEEEEEEEEEEE\t started', self.id, env.now, i, self._m, self._n, self.getT())
 
         while True:
             if self.hasDiscoveredAllNeighbors():
@@ -130,40 +133,29 @@ class FedabNode:
 
                 remainingSlotTime = 1 - self._alpha
 
-                # print(self.id, '\t start_tx at', env.now)
-
-                self.txToNeighbors(nextListenAbsTime)
+                self.txToNeighbors(nextListenAbsTime, i)
                 yield env.timeout(self._alpha)
-                self.txToNeighbors(nextListenAbsTime)
+                self.txToNeighbors(nextListenAbsTime, i)
 
-                # print(self.id, '\t end_tx at', env.now)
-
-                yield env.timeout(remainingSlotTime)
+                yield env.timeout(remainingSlotTime, i)
 
             else:
                 remainingSlotTime = 1
-                # print('extratime', self._extraTxTimes, self.id)
                 for time in self._extraTxTimes:
                     if 0 <= (env.now - time) < 1:
                         timeToNextListen = self._m - (i % self._m)
                         nextListenAbsTime = env.now + timeToNextListen
 
-                        # print(self.id, '\t start_extra_tx at', env.now)
-
-                        self.txToNeighbors(nextListenAbsTime)
+                        self.txToNeighbors(nextListenAbsTime, i)
 
                         yield env.timeout(self._alpha)
                         remainingSlotTime -= - self._alpha
 
-                        self.txToNeighbors(nextListenAbsTime)
-
-                        # print(self.id, '\t end_extra_tx at', env.now)
+                        self.txToNeighbors(nextListenAbsTime, i)
 
                         break
 
                 if i % self._m == 0:
-
-                    # print(self.id, '\t start_rx at', env.now)
 
                     self.listening = True
 
@@ -171,11 +163,8 @@ class FedabNode:
 
                     self.listening = False
 
-                    # print(self.id, '\t end_rx at', env.now)
-
                     if self.hasDiscoveredAllNeighbors():
-                        # print(self.id, 'I', i, "NOW", env.now)
-                        self.latency = i
+                        self.latency = i - self._simDelay
 
                 else:
                     yield env.timeout(remainingSlotTime)

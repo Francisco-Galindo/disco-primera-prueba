@@ -19,7 +19,11 @@ class Algorithm:
         self._nodeA.restart()
         self._nodeB.restart()
 
-        offset = self._nodeB.getSlotOffset()
+        simDelay = random.randint(0, self._nodeB.getT() - 1)
+        offset = self._nodeB.getSlotOffset() + simDelay
+
+        self._nodeA.setSimDelay(simDelay)
+        self._nodeB.setSimDelay(simDelay)
 
         env = simpy.Environment()
         pipeA = []
