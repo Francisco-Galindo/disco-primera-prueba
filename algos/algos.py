@@ -17,7 +17,7 @@ class Algorithm:
 
     def getLatency(self, maxTime):
         self._nodeA.restart()
-        self._nodeB.restart(self._nodeA)
+        self._nodeB.restart()
 
         offset = self._nodeB.getSlotOffset()
 
@@ -33,7 +33,10 @@ class Algorithm:
 
         env.run(until=maxTime+offset)
 
-        return math.ceil(min(self._nodeB.latency, maxTime-1))
+        lat = math.ceil(min(min(self._nodeA.latency, self._nodeB.latency), maxTime-1))
+        # print("LATENCIA", self._nodeA.latency, self._nodeB.latency, lat)
+
+        return lat
 
 
 class Test:
@@ -47,7 +50,7 @@ class Test:
         for algorithm in self.algorithms:
             discoveries = [0] * self.maxTime
             for i in range(self.numTests):
-                # print(i)
+                # print('Test', i)
                 latency = algorithm.getLatency(self.maxTime)
                 discoveries[latency] += 1
 

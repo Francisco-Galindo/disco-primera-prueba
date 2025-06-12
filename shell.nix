@@ -6,6 +6,7 @@ pkgs.mkShell {
   ];
   packages = with pkgs; [
     gnuplot
+    python312Packages.matplotlib
     python312Packages.simpy
   ];
 }

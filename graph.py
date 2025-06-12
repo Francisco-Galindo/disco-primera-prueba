@@ -3,14 +3,37 @@ import random
 import simpy
 import simpy.core
 
-maxTime = 6000
+from algos.fedab import FedabNode
+
+maxTime = 2000
+
+# test = Test([
+#     Algorithm(
+#         DiscoNode((3, 5), name='A'),
+#         DiscoNode((3, 5), name='B'),
+#         "Disco [(37, 43), (37, 43)]"),
+# ], numTests=1, maxTime=maxTime)
+
+a = FedabNode(dutycycle=0.01, id=0)
+b = FedabNode(dutycycle=0.1, id=1)
+
+a.setNeigbors([b])
+b.setNeigbors([a])
 
 test = Test([
     Algorithm(
-        DiscoNode((37, 43)),
-        DiscoNode((37, 43)),
-        "Disco [(37, 43), (37, 43)]"),
-], numTests=100, maxTime=maxTime)
+        a,
+        b,
+        "Fedabeo"),
+], numTests=1000, maxTime=maxTime)
+
+
+# test = Test([
+#     Algorithm(
+#         DiscoNode((37, 43), name='A'),
+#         DiscoNode((37, 43), name='B'),
+#         "Disco [(37, 43), (37, 43)]"),
+# ], numTests=1000, maxTime=maxTime)
 
 
 # test = Test([
@@ -77,18 +100,18 @@ results = test.run()
 
 
 
-# keys = ['slot'] + list(results.keys())
-#
-# line = ''
-# for key in keys:
-#     line += key + '\t'
-# print(line.strip())
-#
-# for i in range(maxTime):
-#     line = ''
-#     for key in keys:
-#         if key == 'slot':
-#             line += f'{i}\t'
-#         else:
-#             line += f'{results[key][i]}\t'
-#     print(line.strip())
+keys = ['slot'] + list(results.keys())
+
+line = ''
+for key in keys:
+    line += key + '\t'
+print(line.strip())
+
+for i in range(maxTime):
+    line = ''
+    for key in keys:
+        if key == 'slot':
+            line += f'{i}\t'
+        else:
+            line += f'{results[key][i]}\t'
+    print(line.strip())
