@@ -2,7 +2,7 @@ import random
 import math
 import simpy
 import simpy.core
-from typing import Generic, List, Type
+from typing import List
 from abc import ABC, abstractmethod
 
 class Node(ABC):
@@ -129,6 +129,82 @@ class ChoNode(Node):
     def neighborsDiscovered(self) -> int:
         return len(self.neighbors)
 
+class AdaptiveAlohaNode(Node):
+    def __init__(self, env, k, pmax, slotOffset = 0, alignmentOffset = 0, id: int = 0) -> None:
+        self.id = id
+        self.listening = False
+        self.k = k
+        self.neighbors = []
+        self.env = env
+        self.simT = 0
+        self.inPipe = []
+        self.i = 0
+        self.n = 1
+        self.successfulTxsInPhase = 0
+        self.p = 0
+        self.W_i = 0
+        self.phaseCnt = 0
+        self.didDeterministicTX = False
+
+        self._slotOffset = slotOffset
+        self._alignmentOffset = alignmentOffset
+
+    def receiveMessage(self, id: int) -> None:
+        if len(self.inPipe) < self.k:
+            self.inPipe.append(id)
+        else:
+            self.inPipe.clear()
+
+    def updateParams(self) -> None:
+        self.i += 1
+
+        d1 = 100
+        self.W_i = d1 * (2**self.i) * math.log(2**self.i) / self.k
+        self.p = self.k / (2 ** self.i)
+        print("updated", self.id, self.p)
+
+    @property
+    def t(self) -> int:
+        return self.simT // 2
+
+    @property
+    def transmitting(self) -> bool:
+        return not self.listening
+
+    def update(self) -> None:
+
+        if self.simT % 2 == 0:
+            if self.phaseCnt >= self.W_i:
+                self.updateParams()
+
+        # Listen on whole slot if listening, or listen in half slot if transmitting
+        if (self.simT % 2 == 1 and self.listening) or (self.simT % 2 == 0 and self.transmitting and not self.didDeterministicTX):
+            # Check for RX's on previous slot
+            for mesg in self.inPipe:
+                if mesg not in self.neighbors:
+                    self.neighbors.append(mesg)
+                    self.listening = False
+                    print(self.id, "Doing deterministic TX")
+                    self.didDeterministicTX = True
+            self.inPipe.clear()
+
+
+        if self.simT % 2 == 0:
+            self.didDeterministicTX = False
+            self.listening = True
+            if random.random() < self.p:
+                print(self.id, "Doing random TX")
+                self.listening = False
+
+            self.phaseCnt += 1
+
+        self.simT += 1
+
+
+    @property
+    def neighborsDiscovered(self) -> int:
+        return len(self.neighbors)
+
 class ChoNodeFactory(NodeFactory):
     def __init__(self, k: int, pmax: float) -> None:
         self.k = k
@@ -136,6 +212,13 @@ class ChoNodeFactory(NodeFactory):
 
     def produce(self, env, slotOffset = 0, alignmentOffset = 0, id: int = 0) -> Node:
         return ChoNode(env, self.k, self.pmax, slotOffset, alignmentOffset, id)
+
+class AdaptiveAlohaNodeFactory(NodeFactory):
+    def __init__(self, k: int) -> None:
+        self.k = k
+
+    def produce(self, env, slotOffset = 0, alignmentOffset = 0, id: int = 0) -> Node:
+        return AdaptiveAlohaNode(env, self.k, slotOffset, alignmentOffset, id)
 
 class Algorithm:
     def __init__(self, N: int, k: int, nodeFactory: NodeFactory, maxTime=10_000) -> None:
@@ -183,5 +266,6 @@ class Algorithm:
 
 
 k = 2
-factory = ChoNodeFactory(k, pmax=0.25)
-algo = Algorithm(N=200, k=k, nodeFactory=factory)
+# factory = ChoNodeFactory(k, pmax=0.25)
+factory = AdaptiveAlohaNodeFactory(k)
+algo = Algorithm(N=4, k=k, nodeFactory=factory)
