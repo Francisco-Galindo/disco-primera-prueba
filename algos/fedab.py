@@ -170,3 +170,86 @@ class FedabNode:
                     yield env.timeout(remainingSlotTime)
 
             i += 1
+
+
+class FedabStochasticNode(FedabNode):
+    def __init__(self, slotOffset = 0, dutycycle = 0.05, alignmentOffset = 0, alpha = 0.054, id = 0, neighbors = []) -> None:
+        super().__init__(slotOffset, dutycycle, alignmentOffset, alpha, id, neighbors)
+        self.updateBeaconTimes()
+        self._beaconTimes = []
+
+    def updateBeaconTimes(self):
+        self._beaconTimes = []
+        # print('andorra', self._beaconTimes)
+        for i in range(1, self._m):
+            num = random.randint(0, self._n - 1)
+            self._beaconTimes.append(self._m * num + i)
+
+    def run(self, env, beaconPipe, listenPipe):
+        startingTime = self._alignmentOffset + self._slotOffset
+        yield env.timeout(startingTime)
+
+        i = 0
+
+        while True:
+            if self.hasDiscoveredAllNeighbors():
+                done = True
+                for neighbor in self.neighbors:
+                    if not neighbor.hasDiscoveredAllNeighbors():
+                        done = False
+                        break
+
+                if done:
+                    break
+
+            # if self.id == 0:
+            #     print("MODULO", i % self.getT())
+            if i % self.getT() == 0:
+                # if self.id == 0:
+                #     print("UpdateBEACONTIME")
+                self.updateBeaconTimes()
+
+            # print(self._beaconTimes, self.getT())
+            if i % self.getT() in self._beaconTimes:
+                timeToNextListen = self._m - (i % self._m)
+                nextListenAbsTime = env.now + timeToNextListen
+
+                remainingSlotTime = 1 - self._alpha
+
+                self.txToNeighbors(nextListenAbsTime, i)
+                yield env.timeout(self._alpha)
+                self.txToNeighbors(nextListenAbsTime, i)
+
+                yield env.timeout(remainingSlotTime, i)
+
+            else:
+                remainingSlotTime = 1
+                for time in self._extraTxTimes:
+                    if 0 <= (env.now - time) < 1:
+                        timeToNextListen = self._m - (i % self._m)
+                        nextListenAbsTime = env.now + timeToNextListen
+
+                        self.txToNeighbors(nextListenAbsTime, i)
+
+                        yield env.timeout(self._alpha)
+                        remainingSlotTime -= - self._alpha
+
+                        self.txToNeighbors(nextListenAbsTime, i)
+
+                        break
+
+                if i % self._m == 0:
+
+                    self.listening = True
+
+                    yield env.timeout(remainingSlotTime)
+
+                    self.listening = False
+
+                    if self.hasDiscoveredAllNeighbors():
+                        self.latency = i - self._simDelay
+
+                else:
+                    yield env.timeout(remainingSlotTime)
+
+            i += 1

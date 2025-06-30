@@ -3,29 +3,42 @@ import random
 import simpy
 import simpy.core
 
-from algos.fedab import FedabNode
+from algos.fedab import FedabNode, FedabStochasticNode
 
 maxTime = 2000
 
 # test = Test([
-#     Algorithm(
+#     Algorithm(, FedabStochasticNode
 #         DiscoNode((3, 5), name='A'),
 #         DiscoNode((3, 5), name='B'),
 #         "Disco [(37, 43), (37, 43)]"),
 # ], numTests=1, maxTime=maxTime)
 
 nodeA = FedabNode(dutycycle=0.01, id=0)
-nodeB = FedabNode(dutycycle=0.1, id=1)
+nodeB = FedabNode(dutycycle=0.05, id=1)
+
+nodeC = FedabStochasticNode(dutycycle=0.01, id=0)
+nodeD = FedabStochasticNode(dutycycle=0.1, id=1)
 
 nodeA.setNeigbors([nodeB])
 nodeB.setNeigbors([nodeA])
+
+nodeC = FedabStochasticNode(dutycycle=0.01, id=0)
+nodeD = FedabStochasticNode(dutycycle=0.1, id=1)
+
+nodeC.setNeigbors([nodeD])
+nodeD.setNeigbors([nodeC])
 
 test = Test([
     Algorithm(
         nodeA,
         nodeB,
         "Fedabeo"),
-], numTests=1000, maxTime=maxTime)
+    Algorithm(
+        nodeC,
+        nodeD,
+        "FedabeoDos"),
+], numTests=100, maxTime=maxTime)
 
 
 # test = Test([
