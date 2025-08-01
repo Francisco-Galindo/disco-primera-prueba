@@ -253,3 +253,17 @@ class FedabStochasticNode(FedabNode):
                     yield env.timeout(remainingSlotTime)
 
             i += 1
+
+
+class FedabStochasticNode2(FedabStochasticNode):
+    def __init__(self, slotOffset = 0, dutycycle = 0.05, alignmentOffset = 0, alpha = 0.054, id = 0, neighbors = []) -> None:
+        super().__init__(slotOffset, dutycycle, alignmentOffset, alpha, id, neighbors)
+        self.updateBeaconTimes()
+        self._beaconTimes = []
+
+    def updateBeaconTimes(self):
+        self._beaconTimes = []
+        cols = random.sample([x for x in range(self._m)], math.ceil(self._m / 2))
+        for i in range(len(cols)):
+            num = random.randint(0, self._n - 1)
+            self._beaconTimes.append(self._m * num + cols[i])

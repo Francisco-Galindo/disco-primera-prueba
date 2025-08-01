@@ -29,6 +29,12 @@ nodeD = FedabStochasticNode(dutycycle=0.1, id=1)
 nodeC.setNeigbors([nodeD])
 nodeD.setNeigbors([nodeC])
 
+nodeE = FedabStochasticNode(dutycycle=0.01, id=0)
+nodeF = FedabStochasticNode(dutycycle=0.1, id=1)
+
+nodeE.setNeigbors([nodeF])
+nodeF.setNeigbors([nodeE])
+
 test = Test([
     Algorithm(
         nodeA,
@@ -38,7 +44,11 @@ test = Test([
         nodeC,
         nodeD,
         "FedabeoDos"),
-], numTests=100, maxTime=maxTime)
+    Algorithm(
+        nodeE,
+        nodeF,
+        "FedabeoTres"),
+], numTests=1000, maxTime=maxTime)
 
 
 # test = Test([
