@@ -1,14 +1,12 @@
-from algos.algos import *
-import random
-import simpy
-import simpy.core
+from algos.algos import Test
+from algos.fedab import FedabNodeFactory, FedabStochasticNodeFactory
 
-from algos.fedab import FedabNodeFactory
-
-maxTime = 2000
+# maxTime = 2000
+maxTime = 400
 
 test = Test([
     {"name": "Fedab", "nodeType": FedabNodeFactory(dutyCycle=0.05)},
+    {"name": "FedabStoc", "nodeType": FedabStochasticNodeFactory(dutyCycle=0.05)},
 ], numTests=100, maxTime=maxTime, numNodes=2)
 
 
