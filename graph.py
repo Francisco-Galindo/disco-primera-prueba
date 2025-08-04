@@ -7,7 +7,7 @@ maxTime = 400
 test = Test([
     {"name": "Fedab", "nodeType": FedabNodeFactory(dutyCycle=0.05)},
     {"name": "FedabStoc", "nodeType": FedabStochasticNodeFactory(dutyCycle=0.05)},
-], numTests=100, maxTime=maxTime, numNodes=2)
+], numTests=100, maxTime=maxTime, numNodes=10)
 
 
 results = test.run()

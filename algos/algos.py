@@ -63,7 +63,7 @@ class SimEnvironment:
         lastNode = max(self._nodes, key=attrgetter('slotOffset'))
         # self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + lastNode.T * random.random()
         self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + 2000 * random.random()
-        self._startTime = 1.1
+        # self._startTime = 1.1
         # self._startTime = 112.91033577615596
         # print("starting time", self._startTime)
 
@@ -78,8 +78,8 @@ class SimEnvironment:
         latency = math.ceil(min(max(latencies), maxTime-1))
 
         self._results["latency"] = latency
-        if latency > maxTime-2:
-            print("PEPE", self._startTime, lastNode.slotOffset, lastNode.alignmentOffset, lastNode.T)
+        # if latency > maxTime-2:
+        #     print("PEPE", self._startTime, lastNode.slotOffset, lastNode.alignmentOffset, lastNode.T)
 
         return self._results
 

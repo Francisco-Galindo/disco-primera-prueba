@@ -92,8 +92,8 @@ class FedabNode(Node):
             # self._alignmentOffset = 0.05099956982122078
             # self._slotOffset = 75
 
-            self._alignmentOffset = 0.966
-            self._slotOffset = 4
+            # self._alignmentOffset = 0.966
+            # self._slotOffset = 4
 
         self._startingTime = self._alignmentOffset + self._slotOffset
 
@@ -105,7 +105,7 @@ class FedabNode(Node):
 
         self.inPipe.append(msg["from"])
         sender = msg["from"]
-        print(f"{self.env.now}: \t{self.id} is RECEIVING A MESSAGE from {sender}")
+        # print(f"{self.env.now}: \t{self.id} is RECEIVING A MESSAGE from {sender}")
         # print(f"{self.env.now}: \t\t\t{self.id} receives message from {msg["from"]}")
 
         yield self.env.timeout(msg["alpha"])
@@ -131,6 +131,8 @@ class FedabNode(Node):
             start_delayed(self.env,
                           self.doTX(),
                           msg["timeToListen"] + timeToFinishSlot - self._alpha)
+        # elif not cleanEnd or not cleanStart:
+        #     print("collision")
 
         # If isten time exceeded, this functions handles finishing the
         # listening window.
@@ -155,16 +157,16 @@ class FedabNode(Node):
             "from": self.id
         }
 
-        if self.listening:
-            print(f"{now}: \t{self.id} stops LISTENING")
-        print(f"{now}: \t{self.id} starts TX")
+        # if self.listening:
+        #     print(f"{now}: \t{self.id} stops LISTENING")
+        # print(f"{now}: \t{self.id} starts TX")
         self.listening = False
         self.outPipe.put(msg)
         yield self.env.timeout(self._alpha)
-        print(f"{self.env.now}: \t{self.id} stops TX")
+        # print(f"{self.env.now}: \t{self.id} stops TX")
 
     def doCycleStart(self):
-        print(f"{self.env.now}: \t{self.id} starts FIRST LISTENING")
+        # print(f"{self.env.now}: \t{self.id} starts FIRST LISTENING")
         self.lastListenSartTime = self.env.now
         self._cycleJustStarted = True
 
@@ -174,7 +176,7 @@ class FedabNode(Node):
         self.listening = True
         yield self.env.timeout(1)
         if len(self.inPipe) == 0 and self.listening:
-            print(f"{self.env.now}: \t{self.id} stops FIRST LISTENING")
+            # print(f"{self.env.now}: \t{self.id} stops FIRST LISTENING")
             self.listening = False
 
         # # If there are elements in inPipe, let receiveMessage handle that.
@@ -184,7 +186,7 @@ class FedabNode(Node):
         #     self.env.process(self.doTX())
 
     def doNormalListen(self):
-        print(f"{self.env.now}: \t{self.id} starts NORMAL LISTENING")
+        # print(f"{self.env.now}: \t{self.id} starts NORMAL LISTENING")
         self._cycleJustStarted = False
         self.lastListenSartTime = self.env.now
         self.listening = True
@@ -192,7 +194,7 @@ class FedabNode(Node):
         # If there are elements in inPipe, let receiveMessage handle that.
         if len(self.inPipe) == 0:
             self.listening = False
-            print(f"{self.env.now}: \t{self.id} stops LISTENING")
+            # print(f"{self.env.now}: \t{self.id} stops LISTENING")
 
     def run(self, maxtime: int):
         startingTime = self._alignmentOffset + self._slotOffset
