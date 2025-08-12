@@ -5,6 +5,7 @@ import simpy
 from typing import List
 from typing import TypedDict
 from operator import attrgetter
+from multiprocessing import Pool
 from algos.node import NodeFactory, Node
 
 
@@ -23,7 +24,12 @@ class SimResults(TypedDict):
 class SimEnvironment:
     def __init__(self, name: str, N: int, nodeFactory: NodeFactory) -> None:
         self._name = name
-        self._results: SimResults = {"id": 0, "latency": 0, "collisions": 0, "unilateraldiscoveries": []}
+        self._results: SimResults = {
+            "id": 0,
+            "latency": 0,
+            "collisions": 0,
+            "unilateraldiscoveries": []
+        }
         self._env = simpy.Environment()
         self._mesgPipe = simpy.Store(self._env)
         self._nodes: List[Node] = []
@@ -65,6 +71,9 @@ class SimEnvironment:
         self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + 2000 * random.random()
         # self._startTime = 1.1
         # self._startTime = 112.91033577615596
+        # self._startTime = 1700.458876908901
+        # self._startTime = 1081.7832315858593
+        self._startTime = 1799.7411901169037
         # print("starting time", self._startTime)
 
         self._env.process(self.routeMessages())
@@ -78,29 +87,35 @@ class SimEnvironment:
         latency = math.ceil(min(max(latencies), maxTime-1))
 
         self._results["latency"] = latency
-        # if latency > maxTime-2:
-        #     print("PEPE", self._startTime, lastNode.slotOffset, lastNode.alignmentOffset, lastNode.T)
+        if latency > maxTime-2:
+            absOffset = min(lastNode.alignmentOffset, math.fabs(1 - lastNode.alignmentOffset))
+            print("PEPE", self._startTime, lastNode.slotOffset, lastNode.alignmentOffset, absOffset, lastNode.T)
 
         return self._results
 
 
 class Test:
-    def __init__(self, algorithms: List[Algo], numTests = 1000, maxTime = 2000, numNodes = 10) -> None:
+    def __init__(self, algorithms: List[Algo], j=1, numTests=1000, maxTime=2000, numNodes=10) -> None:
         self.numTests = numTests
         self.testResults = {}
         self.maxTime = maxTime
         self.numNodes = numNodes
         self.algorithms = algorithms
+        self.j = j
+
+    def runSingleTest(self, algorithm):
+        environment = SimEnvironment("", N=self.numNodes, nodeFactory=algorithm["nodeType"])
+        results = environment.run(self.maxTime)
+        return results
 
     def run(self):
         for algorithm in self.algorithms:
             discoveries = [0] * self.maxTime
-            for i in range(self.numTests):
-                # print('Test', i)
-                environment = SimEnvironment("", N=self.numNodes, nodeFactory=algorithm["nodeType"])
-                results = environment.run(self.maxTime)
-                latency = results["latency"]
-                discoveries[latency] += 1
+            print(algorithm["name"])
+            with Pool(self.j) as p:
+                jobOutput = p.map(self.runSingleTest, [algorithm] * self.numTests)
+                for el in jobOutput:
+                    discoveries[el["latency"]] += 1
 
             accumDiscoveries = list(accumulate(discoveries))
 
