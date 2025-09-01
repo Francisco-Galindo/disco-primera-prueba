@@ -27,6 +27,7 @@ class FedabNode(Node):
         self.inPipe = []
         self.outPipe = mesgPipe
         self.latency = 10000000000
+        self.collisions = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
 
@@ -35,10 +36,12 @@ class FedabNode(Node):
         self._alignmentOffset = alignmentOffset
         self._cycleJustStarted = False
         self._startingTime = 0
+        self._receivingMessage = False
         self.setDutyCycle(dutycycle)
 
         # self._n = 3
         # self._m = 5
+        # print(f"m: {self._m}, \tn: {self._n}")
 
         self.discovered = set()
         self._extraTxTimes = []
@@ -53,6 +56,18 @@ class FedabNode(Node):
 
     def getDutyCycle(self) -> float:
         return 2 / self._m
+
+    @property
+    def n(self) -> int:
+        return self._n
+
+    @property
+    def m(self) -> int:
+        return self._m
+
+    @property
+    def alpha(self) -> int:
+        return self._alpha
 
     @property
     def slotOffset(self) -> int:
@@ -81,8 +96,7 @@ class FedabNode(Node):
         self.latency = 1_000_000_000
 
         if self.id != 0 and self.numNeighbors >= 1:
-            # print("RANDOMIZANDO desde ", self.id)
-            self._alignmentOffset = random.random()
+            self._alignmentOffset = random.uniform(0, 1)
             # self._alignmentOffset = random.random() * (1 - 2*self._alpha) + self._alpha
             self._slotOffset = random.randint(0, self.T-1)
 
@@ -95,19 +109,21 @@ class FedabNode(Node):
             # self._alignmentOffset = 0.966
             # self._slotOffset = 4
 
-            # self._slotOffset = 57
-            # self._alignmentOffset = 0.6383339001141305
+            # self._slotOffset = 59
+            # self._alignmentOffset = 0.9905266523635484
 
-            if self.id == 1:
-                print("AAAAAA", self.numNeighbors)
-                self._slotOffset = 79
-                # self._alignmentOffset = 0.9682901722211306
-                # self._alignmentOffset = self._alpha / 2
-                self._alignmentOffset = 0.024305186030494585
+            # if self.id == 1:
+            #     print("AAAAAA", self.numNeighbors)
+            #     self._slotOffset = 79
+            #     # self._alignmentOffset = 0.9682901722211306
+            #     # self._alignmentOffset = self._alpha / 2
+            #     self._alignmentOffset = 0.024305186030494585
 
         self._startingTime = self._alignmentOffset + self._slotOffset
 
     def receiveMessage(self, msg: Dict):
+
+        self._receivingMessage = True
 
         cleanStart = True
         if len(self.inPipe) != 0:
@@ -126,13 +142,15 @@ class FedabNode(Node):
         cleanEnd = True
         if len(self.inPipe) != 0:
             cleanEnd = False
+        else:
+            self._receivingMessage = False
 
         if cleanEnd and cleanStart and msg["from"] not in self.discovered:
             self.discovered.add(msg["from"])
 
             now = self.env.now
 
-            if self.latency > 1_000_000:
+            if self.latency > 1_000_000 and self.hasDiscoveredAllNeighbors():
                 # print("YA TERMINÉ")
                 self.latency = math.ceil(self.env.now)
 
@@ -168,15 +186,19 @@ class FedabNode(Node):
         }
 
         # if self.listening:
-        #     print(f"{now}: \t{self.id} stops LISTENING")
-        print(f"{now}: \t{self.id} starts TX")
+            # print(f"{now}: \t{self.id} stops LISTENING")
+        if self._receivingMessage:
+            self.collisions += 1
+        while self._receivingMessage:
+            yield self.env.timeout(self._alpha / 4)
+        # print(f"{now}: \t{self.id} starts TX")
         self.listening = False
         self.outPipe.put(msg)
         yield self.env.timeout(self._alpha)
-        print(f"{self.env.now}: \t{self.id} stops TX")
+        # print(f"{self.env.now}: \t{self.id} stops TX")
 
     def doCycleStart(self):
-        print(f"{self.env.now}: \t{self.id} starts FIRST LISTENING")
+        # print(f"{self.env.now}: \t{self.id} starts FIRST LISTENING")
         self.lastListenSartTime = self.env.now
         self._cycleJustStarted = True
 
@@ -186,7 +208,7 @@ class FedabNode(Node):
         self.listening = True
         yield self.env.timeout(1)
         if len(self.inPipe) == 0 and self.listening:
-            print(f"{self.env.now}: \t{self.id} stops FIRST LISTENING")
+            # print(f"{self.env.now}: \t{self.id} stops FIRST LISTENING")
             self.listening = False
 
         # # If there are elements in inPipe, let receiveMessage handle that.
@@ -196,7 +218,7 @@ class FedabNode(Node):
         #     self.env.process(self.doTX())
 
     def doNormalListen(self):
-        print(f"{self.env.now}: \t{self.id} starts NORMAL LISTENING")
+        # print(f"{self.env.now}: \t{self.id} starts NORMAL LISTENING")
         self._cycleJustStarted = False
         self.lastListenSartTime = self.env.now
         self.listening = True
@@ -204,7 +226,7 @@ class FedabNode(Node):
         # If there are elements in inPipe, let receiveMessage handle that.
         if len(self.inPipe) == 0:
             self.listening = False
-            print(f"{self.env.now}: \t{self.id} stops LISTENING")
+            # print(f"{self.env.now}: \t{self.id} stops LISTENING")
 
     def run(self, maxtime: int):
         startingTime = self._alignmentOffset + self._slotOffset

@@ -67,13 +67,13 @@ class SimEnvironment:
     def run(self, maxTime):
 
         lastNode = max(self._nodes, key=attrgetter('slotOffset'))
-        # self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + lastNode.T * random.random()
-        self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + 2000 * random.random()
+        self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + lastNode.T * random.random()
+        # self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + 2000 * random.random()
         # self._startTime = 1.1
         # self._startTime = 112.91033577615596
         # self._startTime = 1700.458876908901
         # self._startTime = 1081.7832315858593
-        self._startTime = 1799.7411901169037
+        # self._startTime = 95.31705676235585
         # print("starting time", self._startTime)
 
         self._env.process(self.routeMessages())
@@ -86,10 +86,30 @@ class SimEnvironment:
         latencies = [(node.latency - self._startTime) for node in self._nodes]
         latency = math.ceil(min(max(latencies), maxTime-1))
 
+        collisions_per_node = [(node.collisions) for node in self._nodes]
+
         self._results["latency"] = latency
+        self._results["collisions"] = sum(collisions_per_node)
         if latency > maxTime-2:
             absOffset = min(lastNode.alignmentOffset, math.fabs(1 - lastNode.alignmentOffset))
-            print("PEPE", self._startTime, lastNode.slotOffset, lastNode.alignmentOffset, absOffset, lastNode.T)
+            m = lastNode.m
+            T = lastNode.T
+            slotOffset = lastNode.slotOffset
+            alignmentOffset = lastNode.alignmentOffset
+            alpha = lastNode.alpha
+
+            if slotOffset <= math.ceil(m / 2) - 1 and alignmentOffset > 1-alpha:
+                print("Correcto 1")
+            elif slotOffset == math.ceil(m / 2) and alignmentOffset < alpha:
+                print("Correcto 2")
+            elif slotOffset >= T - (math.ceil(m / 2) - 1) and alignmentOffset < alpha:
+                print("Correcto 3")
+            elif slotOffset == T - (math.ceil(m / 2)) and alignmentOffset < alpha:
+                print("Correcto 4")
+            elif absOffset < lastNode.alpha:
+                print(f"Correcto, {self._startTime}, so: {lastNode.slotOffset}, \tao: {lastNode.alignmentOffset}, \tdiff: {absOffset}")
+            else:
+                print(f"Fallo, {self._startTime}, \tso: {lastNode.slotOffset}, \tao: {lastNode.alignmentOffset}, \tdiff: {absOffset}")
 
         return self._results
 
@@ -111,11 +131,14 @@ class Test:
     def run(self):
         for algorithm in self.algorithms:
             discoveries = [0] * self.maxTime
-            print(algorithm["name"])
+            # print(algorithm["name"])
             with Pool(self.j) as p:
                 jobOutput = p.map(self.runSingleTest, [algorithm] * self.numTests)
+                collisions = 0
                 for el in jobOutput:
                     discoveries[el["latency"]] += 1
+                    collisions += el["collisions"]
+                # print(f"AVG COLLISIONS per node per test: {collisions / self.numTests}")
 
             accumDiscoveries = list(accumulate(discoveries))
 
