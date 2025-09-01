@@ -33,6 +33,11 @@ class Node(ABC):
 
     @property
     @abstractmethod
+    def discoveredTimes(self) -> int:
+        pass
+
+    @property
+    @abstractmethod
     def neighborsDiscovered(self) -> int:
         pass
 

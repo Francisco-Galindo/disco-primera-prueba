@@ -4,7 +4,12 @@ import simpy
 import simpy.core
 from simpy.util import start_delayed
 from algos.node import Node, NodeFactory
-from typing import Dict
+from typing import Dict, TypedDict, Set, List
+
+
+class Discovery(TypedDict):
+    id: int
+    time: str
 
 
 class FedabNodeFactory(NodeFactory):
@@ -26,7 +31,7 @@ class FedabNode(Node):
         self.env = env
         self.inPipe = []
         self.outPipe = mesgPipe
-        self.latency = 10000000000
+        self.latency = 10_000_000_000
         self.collisions = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
@@ -43,7 +48,8 @@ class FedabNode(Node):
         # self._m = 5
         # print(f"m: {self._m}, \tn: {self._n}")
 
-        self.discovered = set()
+        self._discovered: Set[int] = set()
+        self._discoveredTimes: List[int] = []
         self._extraTxTimes = []
 
         if not slotOffset:
@@ -66,6 +72,10 @@ class FedabNode(Node):
         return self._m
 
     @property
+    def discoveredTimes(self) -> int:
+        return self._discoveredTimes
+
+    @property
     def alpha(self) -> int:
         return self._alpha
 
@@ -83,10 +93,10 @@ class FedabNode(Node):
 
     @property
     def neighborsDiscovered(self) -> int:
-        return len(self.discovered)
+        return len(self._discovered)
 
     def restart(self) -> None:
-        self.discovered = set()
+        self._discovered: Set[int] = set()
         self._extraTxTimes = []
         self.listening = False
 
@@ -99,15 +109,6 @@ class FedabNode(Node):
             self._alignmentOffset = random.uniform(0, 1)
             # self._alignmentOffset = random.random() * (1 - 2*self._alpha) + self._alpha
             self._slotOffset = random.randint(0, self.T-1)
-
-            # self._alignmentOffset = 0.5
-            # self._slotOffset = 0
-
-            # self._alignmentOffset = 0.05099956982122078
-            # self._slotOffset = 75
-
-            # self._alignmentOffset = 0.966
-            # self._slotOffset = 4
 
             # self._slotOffset = 59
             # self._alignmentOffset = 0.9905266523635484
@@ -130,7 +131,7 @@ class FedabNode(Node):
             cleanStart = False
 
         self.inPipe.append(msg["from"])
-        sender = msg["from"]
+        # sender = msg["from"]
         # print(f"{self.env.now}: \t{self.id} is RECEIVING A MESSAGE from {sender}")
         # print(f"{self.env.now}: \t\t\t{self.id} receives message from {msg["from"]}")
 
@@ -145,10 +146,11 @@ class FedabNode(Node):
         else:
             self._receivingMessage = False
 
-        if cleanEnd and cleanStart and msg["from"] not in self.discovered:
-            self.discovered.add(msg["from"])
-
+        if cleanEnd and cleanStart and msg["from"] not in self._discovered:
             now = self.env.now
+
+            self._discovered.add(msg["from"])
+            self._discoveredTimes.append(math.ceil(now))
 
             if self.latency > 1_000_000 and self.hasDiscoveredAllNeighbors():
                 # print("YA TERMINÉ")
@@ -172,7 +174,7 @@ class FedabNode(Node):
                 self.env.process(self.doTX())
 
     def hasDiscoveredAllNeighbors(self):
-        return self.numNeighbors == len(self.discovered)
+        return self.numNeighbors == len(self._discovered)
 
     def doTX(self):
         now = self.env.now
@@ -189,8 +191,8 @@ class FedabNode(Node):
             # print(f"{now}: \t{self.id} stops LISTENING")
         if self._receivingMessage:
             self.collisions += 1
-        while self._receivingMessage:
-            yield self.env.timeout(self._alpha / 4)
+        # while self._receivingMessage:
+        #     yield self.env.timeout(self._alpha / 4)
         # print(f"{now}: \t{self.id} starts TX")
         self.listening = False
         self.outPipe.put(msg)
@@ -239,6 +241,8 @@ class FedabNode(Node):
                 start_delayed(self.env, self.doCycleStart(), i)
             else:
                 start_delayed(self.env, self.doNormalListen(), i)
+
+        self._discoveredTimes.sort()
 
 
 class FedabStochasticNodeFactory(NodeFactory):
