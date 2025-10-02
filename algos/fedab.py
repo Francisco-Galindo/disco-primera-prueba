@@ -20,6 +20,11 @@ class FedabNodeFactory(NodeFactory):
     def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
         return FedabNode(env, mesgPipe, slotOffset, self.dutyCycle, alignmentOffset, self.alpha, id, numNeighbors)
 
+    @property
+    def nodeTypeName(self) -> str:
+        return "Fedab"
+
+
 
 class FedabNode(Node):
     def __init__(self, env, mesgPipe: simpy.Store, slotOffset=0, dutycycle=0.05, alignmentOffset=0, alpha=0.0546875, id=0, numNeighbors=0) -> None:
@@ -252,6 +257,10 @@ class FedabStochasticNodeFactory(NodeFactory):
 
     def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
         return FedabStochasticNode(env, mesgPipe, slotOffset, self.dutyCycle, alignmentOffset, self.alpha, id, numNeighbors)
+
+    @property
+    def nodeTypeName(self) -> str:
+        return "FedabStoc"
 
 
 class FedabStochasticNode(FedabNode):

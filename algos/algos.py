@@ -75,7 +75,10 @@ class SimEnvironment:
     def run(self, maxTime):
 
         lastNode = max(self._nodes, key=attrgetter('slotOffset'))
-        self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + lastNode.T * random.random()
+        if self._nodeFactory.nodeTypeName == "Reward":
+            self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + 200 * random.random()
+        else:
+            self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + lastNode.T * random.random()
         # self._startTime = 95.31705676235585
         # print("starting time", self._startTime)
 

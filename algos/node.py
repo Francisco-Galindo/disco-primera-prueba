@@ -50,7 +50,13 @@ class Node(ABC):
     def receiveMessage(self, msg: Dict) -> ProcessGenerator:
         pass
 
+
 class NodeFactory(ABC):
     @abstractmethod
     def produce(self, env, mesgPipe: simpy.Store, slotOffset = 0, alignmentOffset = 0, id = 0, numNeighbors = 0) -> Node:
+        pass
+
+    @property
+    @abstractmethod
+    def nodeTypeName(self) -> str:
         pass
