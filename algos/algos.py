@@ -87,7 +87,8 @@ class SimEnvironment:
         self._env.run(until=maxTime+self._startTime)
 
         latencies = [(node.latency - self._startTime) for node in self._nodes]
-        latency = math.ceil(min(max(latencies), maxTime-1))
+        latencies.sort()
+        latency = math.ceil(min(latencies[-2], maxTime-1))
 
         collisions_per_node = [(node.collisions) for node in self._nodes]
 
