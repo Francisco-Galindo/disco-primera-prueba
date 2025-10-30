@@ -5,6 +5,7 @@ import simpy.core
 from simpy.util import start_delayed
 from algos.node import Node, NodeFactory
 from typing import Dict, TypedDict, Set, List
+from operator import add
 
 
 class Discovery(TypedDict):
@@ -22,7 +23,7 @@ class RewardNodeFactory(NodeFactory):
 
     @property
     def nodeTypeName(self) -> str:
-        return "Reward"
+        return "Reward 1"
 
 
 class RewardNode(Node):
@@ -37,8 +38,11 @@ class RewardNode(Node):
         self.outPipe = mesgPipe
         self.latency = 10_000_000_000
         self.collisions = 0
+        self.cleanDiscoveries = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
+        self.DCUpdates = []
+        self.finalDC = 0
 
         self._turnedOn = False
         self._slotOffset = slotOffset
@@ -52,15 +56,21 @@ class RewardNode(Node):
         self._DC = dutycycle
         self._activeSlots = 0
 
-        self._perfList = []
-        self._perfDiff = []
-        self._perf2Diff = []
+        self._newDiscoveriesMem = []
+        self._collisionMem = []
+        self._cleanDiscoveryMem = []
+        self._totalDiscoveries = []
 
         self._discovered: Set[int] = set()
         self._discoveredTimes: List[int] = []
+        self._collisionTimes: List[int] = []
+        self._simStartTime = 0
 
         if not slotOffset:
             self.restart()
+
+    def setSimStartTime(self, time):
+        self._simStartTime = time
 
     def setDutyCycle(self, dutycycle=0.05) -> None:
         # self._m = math.ceil(2 / dutycycle)
@@ -83,6 +93,10 @@ class RewardNode(Node):
         return self._discoveredTimes
 
     @property
+    def collisionTimes(self) -> int:
+        return self._collisionTimes
+
+    @property
     def alpha(self) -> int:
         return self._alpha
 
@@ -96,7 +110,7 @@ class RewardNode(Node):
 
     @property
     def T(self) -> int:
-        return self._n * self._m
+        return 100
 
     @property
     def neighborsDiscovered(self) -> int:
@@ -150,10 +164,15 @@ class RewardNode(Node):
             if self.latency > 1_000_000 and self.hasDiscoveredAllNeighbors():
                 # print("YA TERMINÉ")
                 self.latency = math.ceil(self.env.now)
-                print(self._activeSlots / self.latency)
+                self.finalDC = self._activeSlots / self.latency
+                # print("DC", self._activeSlots / self.latency)
 
-        # elif not cleanEnd or not cleanStart:
-        #     print("collision")
+        elif cleanEnd and cleanStart:
+            self.cleanDiscoveries += 1
+        elif not cleanEnd or not cleanStart:
+            # print("collision")
+            self.collisions += 1
+            self._collisionTimes.append(math.ceil(self.env.now))
 
         # If isten time exceeded, this functions handles finishing the
         # listening window.
@@ -189,34 +208,35 @@ class RewardNode(Node):
         # print(f"{self.env.now}: \t{self.id} stops TX")
 
     def updateDutyCycle(self):
-        if len(self._perfList) < 4:
-            self._perfList.append(len(self._discovered))
+        if len(self._totalDiscoveries) < 4:
+            # self._newDiscoveriesMem.append(len(self._discovered))
+            # self._collissionMemory.append(self.collisions)
+            self._totalDiscoveries.append(self.cleanDiscoveries + self.collisions)
 
-            if len(self._perfList) <= 2:
-                if self._perfList[-1] == 0:
+            if len(self._totalDiscoveries) <= 2:
+                if self._totalDiscoveries[-1] == 0:
                     self._DC += 0.02
-            elif len(self._perfList) > 2:
-                self._perfDiff = self.genDifferenceList(self._perfList)
-                if self._perfDiff[-1] == 0:
-                    self._DC += 0.01 * len(self._perfList)
+            elif len(self._totalDiscoveries) > 2:
+                perfDiff = self.genDifferenceList(self._totalDiscoveries)
+                if perfDiff[-1] == 0:
+                    self._DC += 0.01 * len(self._totalDiscoveries)
 
         else:
-            self._perfList = self._perfList[1:]
-            self._perfList.append(len(self._discovered))
+            # self._newDiscoveriesMem = self._perfList[1:]
+            # self._newDiscoveriesMem.append(len(self._discovered))
+            # self._collissionMemory = self._collissionMemory[1:]
+            # self._collissionMemory.append(self.collisions)
+            self._totalDiscoveries = self._totalDiscoveries[1:]
+            self._totalDiscoveries.append(self.cleanDiscoveries + self.collisions)
 
-            self._perfDiff = self.genDifferenceList(self._perfList)
-            self._perf2Diff = self.genDifferenceList(self._perfDiff)
+            perfDiff = self.genDifferenceList(self._totalDiscoveries)
+            perf2Diff = self.genDifferenceList(perfDiff)
 
-            if self._perf2Diff[1] <= 0.9 * self._perf2Diff[0]:
-                # if self.id == 0:
-                #     print("YEA")
-                self._DC += 0.02
-                # try:
-                #     self._DC += min(self._perf2Diff[0] / self._perf2Diff[1] * 0.04, 0.05)
-                # except ZeroDivisionError:
-                #     self._DC += 0.05
-            elif self._perf2Diff[1] >= 1.1 * self._perf2Diff[0]:
+            if perf2Diff[1] <= 0.9 * perf2Diff[0]:
+                self._DC += 0.04
+            elif perf2Diff[1] >= 1.1 * perf2Diff[0]:
                 self._DC -= 0.01
+
 
     def genDifferenceList(self, lst):
         return [lst[i+1] - lst[i] for i in range(len(lst)-1)]
@@ -226,28 +246,36 @@ class RewardNode(Node):
         self.lastListenSartTime = self.env.now
         self._cycleJustStarted = True
 
-        self.updateDutyCycle()
+        if self.env.now > self._simStartTime:
+            self.updateDutyCycle()
+            self.DCUpdates.append((round(self.env.now), self._DC))
 
         self._DC = max(0.01, self._DC)
-        self._DC = min(0.13, self._DC)
+        self._DC = min(0.15, self._DC)
         self._activeSlots += self._DC * 100
 
-        beaconSlots = []
-        for i in range(round(self._DC / 0.01)):
-            beaconSlot = random.randint(0, 99)
-            while beaconSlot in beaconSlots:
-                beaconSlot = random.randint(0, 99)
+        beaconTimes = []
+        while len(beaconTimes) < round(self._DC / 0.01):
+            beaconTime = random.random() * 99
+            isNew = True
+            for time in beaconTimes:
+                if 0 <= beaconTime - time <= 1:
+                    isNew = False
+                    break
 
-            beaconSlots.append(beaconSlot)
+            if isNew:
+                beaconTimes.append(beaconTime)
+
+            beaconTimes.append(beaconTime)
 
         # if self.id == 0:
         #     print("LOLER", self._DC, self.env.now, len(beaconSlots), len(self._discovered))
 
-        for beaconSlot in beaconSlots:
-            if beaconSlot == 0:
+        for beaconTime in beaconTimes:
+            if beaconTime == 0:
                 self.env.process(self.activeSlotSequence())
             else:
-                start_delayed(self.env, self.activeSlotSequence(), beaconSlot)
+                start_delayed(self.env, self.activeSlotSequence(), beaconTime)
         yield self.env.timeout(1) # LOL
 
     def activeSlotSequence(self):
@@ -277,3 +305,301 @@ class RewardNode(Node):
                 start_delayed(self.env, self.doCycleStart(), i)
 
         self._discoveredTimes.sort()
+        self._collisionTimes.sort()
+        self.DCUpdates.sort()
+
+
+class Reward2NodeFactory(NodeFactory):
+    def __init__(self, startDC=0.05, alpha=0.0546875) -> None:
+        self.startDC = startDC
+        self.alpha = alpha
+
+    def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
+        return Reward2Node(env, mesgPipe, slotOffset, self.startDC, alignmentOffset, self.alpha, id, numNeighbors)
+
+    @property
+    def nodeTypeName(self) -> str:
+        return "Reward 2"
+
+
+class Reward2Node(RewardNode):
+    def __init__(self, env, mesgPipe: simpy.Store, slotOffset=0, dutycycle=0.05, alignmentOffset=0, alpha=0.0546875, id=0, numNeighbors=0) -> None:
+        self.id = id
+        self._alpha = alpha
+        self._m = math.ceil(2 / dutycycle)
+        self._n = math.ceil(alpha / dutycycle)
+        self.listening = False
+        self.env = env
+        self.inPipe = []
+        self.outPipe = mesgPipe
+        self.latency = 10_000_000_000
+        self.collisions = 0
+        self.cleanDiscoveries = 0
+        self.numNeighbors = numNeighbors
+        self.lastListenSartTime = 0
+        self.DCUpdates = []
+        self.finalDC = 0
+
+        self._turnedOn = False
+        self._slotOffset = slotOffset
+        self._alignmentOffset = alignmentOffset
+        self._cycleJustStarted = False
+        self._startingTime = 0
+        self._receivingMessage = False
+
+        self.setDutyCycle(dutycycle)
+
+        self._DC = dutycycle
+        self._activeSlots = 0
+
+        self._newDiscoveriesMem = []
+        self._collisionMem = []
+        self._cleanDiscoveryMem = []
+        self._totalDiscoveries = []
+
+        self._discovered: Set[int] = set()
+        self._discoveredTimes: List[int] = []
+        self._collisionTimes: List[int] = []
+        self._simStartTime = 0
+
+        if not slotOffset:
+            self.restart()
+
+    def updateDutyCycle(self):
+        if len(self._totalDiscoveries) < 4:
+            self._newDiscoveriesMem.append(len(self._discovered))
+
+            if len(self._newDiscoveriesMem) <= 2:
+                if self._newDiscoveriesMem[-1] == 0:
+                    self._DC += 0.02
+            elif len(self._newDiscoveriesMem) > 2:
+                perfDiff = self.genDifferenceList(self._newDiscoveriesMem)
+                if perfDiff[-1] == 0:
+                    self._DC += 0.01 * len(self._newDiscoveriesMem)
+
+        else:
+            self._newDiscoveriesMem = self._perfList[1:]
+            self._newDiscoveriesMem.append(len(self._discovered))
+
+            perfDiff = self.genDifferenceList(self._newDiscoveriesMem)
+            perf2Diff = self.genDifferenceList(perfDiff)
+
+            if perf2Diff[1] <= 0.9 * perf2Diff[0]:
+                self._DC += 0.04
+            elif perf2Diff[1] >= 1.1 * perf2Diff[0]:
+                self._DC -= 0.01
+
+
+class Reward3NodeFactory(NodeFactory):
+    def __init__(self, startDC=0.05, alpha=0.0546875) -> None:
+        self.startDC = startDC
+        self.alpha = alpha
+
+    def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
+        return Reward3Node(env, mesgPipe, slotOffset, self.startDC, alignmentOffset, self.alpha, id, numNeighbors)
+
+    @property
+    def nodeTypeName(self) -> str:
+        return "Reward 3"
+
+
+class Reward3Node(RewardNode):
+    def __init__(self, env, mesgPipe: simpy.Store, slotOffset=0, dutycycle=0.05, alignmentOffset=0, alpha=0.0546875, id=0, numNeighbors=0) -> None:
+        self.id = id
+        self._alpha = alpha
+        self._m = math.ceil(2 / dutycycle)
+        self._n = math.ceil(alpha / dutycycle)
+        self.listening = False
+        self.env = env
+        self.inPipe = []
+        self.outPipe = mesgPipe
+        self.latency = 10_000_000_000
+        self.collisions = 0
+        self.cleanDiscoveries = 0
+        self.numNeighbors = numNeighbors
+        self.lastListenSartTime = 0
+        self.DCUpdates = []
+        self.finalDC = 0
+
+        self._turnedOn = False
+        self._slotOffset = slotOffset
+        self._alignmentOffset = alignmentOffset
+        self._cycleJustStarted = False
+        self._startingTime = 0
+        self._receivingMessage = False
+
+        self.setDutyCycle(dutycycle)
+
+        self._DC = dutycycle
+        self._activeSlots = 0
+
+        self._newDiscoveriesMem = []
+        self._collisionMem = []
+        self._cleanDiscoveryMem = []
+        self._totalDiscoveries = []
+
+        self._discovered: Set[int] = set()
+        self._discoveredTimes: List[int] = []
+        self._collisionTimes: List[int] = []
+        self._simStartTime = 0
+
+        if not slotOffset:
+            self.restart()
+
+    def updateDutyCycle(self):
+        self._cleanDiscoveryMem.append(self.cleanDiscoveries)
+        if len(self._cleanDiscoveryMem) > 3:
+            self._cleanDiscoveryMem = self._cleanDiscoveryMem[1:]
+
+            if self._cleanDiscoveryMem[-1] == self._cleanDiscoveryMem[-2]:
+                self._DC += 0.1
+            elif len(self._cleanDiscoveryMem) >= 3 and self._cleanDiscoveryMem[-3] < self._cleanDiscoveryMem[-2] and self._cleanDiscoveryMem[-2] < self._cleanDiscoveryMem[-1]:
+                self._DC -= 0.1
+
+
+class Reward4NodeFactory(NodeFactory):
+    def __init__(self, startDC=0.05, alpha=0.0546875) -> None:
+        self.startDC = startDC
+        self.alpha = alpha
+
+    def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
+        return Reward4Node(env, mesgPipe, slotOffset, self.startDC, alignmentOffset, self.alpha, id, numNeighbors)
+
+    @property
+    def nodeTypeName(self) -> str:
+        return "Reward 4"
+
+
+class Reward4Node(RewardNode):
+    def __init__(self, env, mesgPipe: simpy.Store, slotOffset=0, dutycycle=0.05, alignmentOffset=0, alpha=0.0546875, id=0, numNeighbors=0) -> None:
+        self.id = id
+        self._alpha = alpha
+        self._m = math.ceil(2 / dutycycle)
+        self._n = math.ceil(alpha / dutycycle)
+        self.listening = False
+        self.env = env
+        self.inPipe = []
+        self.outPipe = mesgPipe
+        self.latency = 10_000_000_000
+        self.collisions = 0
+        self.cleanDiscoveries = 0
+        self.numNeighbors = numNeighbors
+        self.lastListenSartTime = 0
+        self.DCUpdates = []
+        self.finalDC = 0
+
+        self._turnedOn = False
+        self._slotOffset = slotOffset
+        self._alignmentOffset = alignmentOffset
+        self._cycleJustStarted = False
+        self._startingTime = 0
+        self._receivingMessage = False
+
+        self.setDutyCycle(dutycycle)
+
+        self._DC = dutycycle
+        self._activeSlots = 0
+
+        self._newDiscoveriesMem = []
+        self._collisionMem = []
+        self._cleanDiscoveryMem = []
+        self._totalDiscoveries = []
+
+        self._discovered: Set[int] = set()
+        self._discoveredTimes: List[int] = []
+        self._collisionTimes: List[int] = []
+        self._simStartTime = 0
+
+        if not slotOffset:
+            self.restart()
+
+    def updateDutyCycle(self):
+        self._cleanDiscoveryMem.append(self.cleanDiscoveries)
+        if len(self._cleanDiscoveryMem) > 3:
+            self._cleanDiscoveryMem = self._cleanDiscoveryMem[1:]
+
+            if self._cleanDiscoveryMem[-1] == self._cleanDiscoveryMem[-2]:
+                self._DC += 0.2
+            elif len(self._cleanDiscoveryMem) >= 3 and self._cleanDiscoveryMem[-3] < self._cleanDiscoveryMem[-2] and self._cleanDiscoveryMem[-2] < self._cleanDiscoveryMem[-1]:
+                self._DC -= 0.1
+
+
+class Reward5NodeFactory(NodeFactory):
+    def __init__(self, startDC=0.05, alpha=0.0546875) -> None:
+        self.startDC = startDC
+        self.alpha = alpha
+
+    def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
+        return Reward5Node(env, mesgPipe, slotOffset, self.startDC, alignmentOffset, self.alpha, id, numNeighbors)
+
+    @property
+    def nodeTypeName(self) -> str:
+        return "Reward 4"
+
+
+class Reward5Node(RewardNode):
+    def __init__(self, env, mesgPipe: simpy.Store, slotOffset=0, dutycycle=0.05, alignmentOffset=0, alpha=0.0546875, id=0, numNeighbors=0) -> None:
+        self.id = id
+        self._alpha = alpha
+        self._m = math.ceil(2 / dutycycle)
+        self._n = math.ceil(alpha / dutycycle)
+        self.listening = False
+        self.env = env
+        self.inPipe = []
+        self.outPipe = mesgPipe
+        self.latency = 10_000_000_000
+        self.collisions = 0
+        self.cleanDiscoveries = 0
+        self.numNeighbors = numNeighbors
+        self.lastListenSartTime = 0
+        self.DCUpdates = []
+        self.finalDC = 0
+
+        self._turnedOn = False
+        self._slotOffset = slotOffset
+        self._alignmentOffset = alignmentOffset
+        self._cycleJustStarted = False
+        self._startingTime = 0
+        self._receivingMessage = False
+
+        self.setDutyCycle(dutycycle)
+
+        self._DC = dutycycle
+        self._activeSlots = 0
+
+        self._newDiscoveriesMem = []
+        self._collisionMem = []
+        self._cleanDiscoveryMem = []
+        self._totalDiscoveries = []
+
+        self._discovered: Set[int] = set()
+        self._discoveredTimes: List[int] = []
+        self._collisionTimes: List[int] = []
+        self._simStartTime = 0
+
+        if not slotOffset:
+            self.restart()
+
+    def updateDutyCycle(self):
+        if len(self._totalDiscoveries) < 4:
+            self._newDiscoveriesMem.append(len(self._discovered))
+
+            if len(self._newDiscoveriesMem) <= 2:
+                if self._newDiscoveriesMem[-1] == 0:
+                    self._DC += 0.02
+            elif len(self._newDiscoveriesMem) > 2:
+                perfDiff = self.genDifferenceList(self._newDiscoveriesMem)
+                if perfDiff[-1] == 0:
+                    self._DC += 0.01 * len(self._newDiscoveriesMem)
+
+        else:
+            self._newDiscoveriesMem = self._perfList[1:]
+            self._newDiscoveriesMem.append(len(self._discovered))
+
+            perfDiff = self.genDifferenceList(self._newDiscoveriesMem)
+            perf2Diff = self.genDifferenceList(perfDiff)
+
+            if perf2Diff[1] <= 0.9 * perf2Diff[0]:
+                self._DC += 0.04
+            elif perf2Diff[1] >= 1.1 * perf2Diff[0]:
+                self._DC -= 0.01

@@ -55,6 +55,7 @@ class FedabNode(Node):
 
         self._discovered: Set[int] = set()
         self._discoveredTimes: List[int] = []
+        self._collisionTimes: List[int] = []
         self._extraTxTimes = []
 
         if not slotOffset:
@@ -79,6 +80,10 @@ class FedabNode(Node):
     @property
     def discoveredTimes(self) -> int:
         return self._discoveredTimes
+
+    @property
+    def collisionTimes(self) -> int:
+        return self._collisionTimes
 
     @property
     def alpha(self) -> int:
@@ -166,8 +171,10 @@ class FedabNode(Node):
             start_delayed(self.env,
                           self.doTX(),
                           max(msg["timeToListen"] + timeToFinishSlot - self._alpha, self._alpha / 1000))
-        # elif not cleanEnd or not cleanStart:
-        #     print("collision")
+        elif not cleanEnd or not cleanStart:
+            # print("collision")
+            self.collisions += 1
+            self._collisionTimes.append(math.ceil(self.env.now))
 
         # If isten time exceeded, this functions handles finishing the
         # listening window.
@@ -248,6 +255,7 @@ class FedabNode(Node):
                 start_delayed(self.env, self.doNormalListen(), i)
 
         self._discoveredTimes.sort()
+        self._collisionTimes.sort()
 
 
 class FedabStochasticNodeFactory(NodeFactory):

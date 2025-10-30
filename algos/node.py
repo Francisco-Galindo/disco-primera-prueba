@@ -38,6 +38,11 @@ class Node(ABC):
 
     @property
     @abstractmethod
+    def collisionTimes(self) -> int:
+        pass
+
+    @property
+    @abstractmethod
     def neighborsDiscovered(self) -> int:
         pass
 
