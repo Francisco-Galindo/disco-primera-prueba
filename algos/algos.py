@@ -49,6 +49,7 @@ class SimEnvironment:
         self._nodeFactory = nodeFactory
         self._N = N
         self._startTime = 0
+        self._stopTime = 0
 
         for i in range(N):
             newNode = nodeFactory.produce(self._env, self._mesgPipe, id=i, numNeighbors=self._N-1)
@@ -56,6 +57,11 @@ class SimEnvironment:
 
     def getName(self) -> str:
         return self._name
+
+    def stopAll(self, time):
+        self._stopTime = time
+        for node in self._nodes:
+            node.stop()
 
     def routeMessages(self):
         """Distribute a message sent by a node into all other nodes."""
@@ -69,17 +75,18 @@ class SimEnvironment:
                 for node in self._nodes:
                     if node.id != msg["from"] and node.listening:
                         self._env.process(node.receiveMessage(msg))
-                    if not node.neighborsDiscovered == self._N:
+                    if not node.neighborsDiscovered == self._N - 1:
                         done = False
 
                 if done:
+                    self.stopAll(self._env.now)
                     break
 
     def run(self, maxTime):
 
         lastNode = max(self._nodes, key=attrgetter('slotOffset'))
         if "Reward" in self._nodeFactory.nodeTypeName:
-            self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + 200 * random.random()
+            self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + 100 * random.random()
             for node in self._nodes:
                 node.setSimStartTime(self._startTime)
         else:
@@ -91,12 +98,14 @@ class SimEnvironment:
         for node in self._nodes:
             self._env.process(node.run(maxTime+self._startTime))
 
+        self._stopTime = maxTime
         # print("simtime", maxTime+self._startTime)
         self._env.run(until=maxTime+self._startTime)
 
+
         latencies = [(node.latency - self._startTime) for node in self._nodes]
-        latencies.sort()
-        latency = math.ceil(min(latencies[-2], maxTime-1))
+        latencies.sort(reverse=True)
+        latency = math.ceil(min(latencies[0], maxTime-1))
 
         collisions_per_node = [(node.collisions) for node in self._nodes]
 
@@ -140,11 +149,13 @@ class SimEnvironment:
 
             finalDC_per_node = [(node.finalDC) for node in self._nodes]
 
+        # print("TOTALCOLISIONS:", sum(collisions_per_node))
         self._results["finalDC"] = sum(finalDC_per_node) / self._N
-        self._results["collisions"] = sum(collisions_per_node) / self._N
+        self._results["collisions"] = 100 * sum(collisions_per_node) / (self._N * (self._stopTime - self._startTime))
         self._results["accumDiscoveries"] = accumDiscoveries
         self._results["accumCollisions"] = accumColls
         self._results["DCAvg"] = DCAvg
+        self._results["latency"] = latency
 
 
         # if latency > maxTime-2:
@@ -172,7 +183,7 @@ class SimEnvironment:
 
 
 class Test:
-    def __init__(self, algorithms: List[Algo],  numTests=1000, maxTime=2000, numNodes=10) -> None:
+    def __init__(self, algorithms: List[Algo],  name="test", numTests=1000, maxTime=2000, numNodes=10) -> None:
         self.numTests = numTests
         self.timeToFinishResults = {}
         self.discoveryProportionResults = {}
@@ -181,6 +192,7 @@ class Test:
         self.maxTime = maxTime
         self.numNodes = numNodes
         self.algorithms = algorithms
+        self.name = name
 
     def runSingleTest(self, algorithm):
         environment = SimEnvironment("", N=self.numNodes, nodeFactory=algorithm["nodeType"])
@@ -217,7 +229,6 @@ class Test:
             finalDC = 0
             # print(algorithm["name"])
             with Pool(os.cpu_count()) as p:
-                print("HOLA")
                 jobOutput = p.map(self.runSingleTest, [algorithm] * self.numTests)
                 for el in jobOutput:
                     timeToFinish[el["latency"]] += 1
@@ -240,7 +251,7 @@ class Test:
             print("COLLISIONS", algorithm["name"], collisions)
             print("FINALDC", algorithm["name"], finalDC)
 
-        self.writeResultToFile(f'time-to-finish-{self.numNodes}-nodes.tsv', self.timeToFinishResults, "time_to_finish", self.maxTime)
-        self.writeResultToFile(f'discoveryProportion-{self.numNodes}-nodes.tsv', self.discoveryProportionResults, "discovery_proportion", self.maxTime)
-        self.writeResultToFile(f'collisions-{self.numNodes}-nodes.tsv', self.collisionResults, "collisions", self.maxTime)
-        self.writeResultToFile(f'DC-{self.numNodes}-nodes.tsv', self.DCAvgResults, "DC-avg", self.maxTime)
+        self.writeResultToFile(f'./data-sweep/{self.name}-time-to-finish-{self.numNodes}-nodes.tsv', self.timeToFinishResults, "time_to_finish", self.maxTime)
+        self.writeResultToFile(f'./data-sweep/{self.name}-discoveryProportion-{self.numNodes}-nodes.tsv', self.discoveryProportionResults, "discovery_proportion", self.maxTime)
+        self.writeResultToFile(f'./data-sweep/{self.name}-collisions-{self.numNodes}-nodes.tsv', self.collisionResults, "collisions", self.maxTime)
+        self.writeResultToFile(f'./data-sweep/{self.name}-DC-{self.numNodes}-nodes.tsv', self.DCAvgResults, "DC-avg", self.maxTime)

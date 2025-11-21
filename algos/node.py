@@ -55,6 +55,10 @@ class Node(ABC):
     def receiveMessage(self, msg: Dict) -> ProcessGenerator:
         pass
 
+    @abstractmethod
+    def stop(self):
+        pass
+
 
 class NodeFactory(ABC):
     @abstractmethod

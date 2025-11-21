@@ -47,6 +47,7 @@ class FedabNode(Node):
         self._cycleJustStarted = False
         self._startingTime = 0
         self._receivingMessage = False
+        self._shouldStop = False
         self.setDutyCycle(dutycycle)
 
         # self._n = 3
@@ -68,6 +69,9 @@ class FedabNode(Node):
 
     def getDutyCycle(self) -> float:
         return 2 / self._m
+
+    def stop(self):
+        self._shouldStop = True
 
     @property
     def n(self) -> int:
@@ -212,6 +216,8 @@ class FedabNode(Node):
         # print(f"{self.env.now}: \t{self.id} stops TX")
 
     def doCycleStart(self):
+        if self._shouldStop:
+            return
         # print(f"{self.env.now}: \t{self.id} starts FIRST LISTENING")
         self.lastListenSartTime = self.env.now
         self._cycleJustStarted = True
