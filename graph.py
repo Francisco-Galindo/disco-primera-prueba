@@ -4,9 +4,9 @@ from algos.reward import RewardNodeFactory, Reward2NodeFactory, Reward3NodeFacto
 
 # maxTime = 2500
 # maxTime = 5000
-# maxTime = 10_000
+# maxTime = 25_000
 # maxTime = 700
-maxTime = 30_000
+maxTime = 50_000
 
 test = Test([
     # {
@@ -38,10 +38,10 @@ test = Test([
     #     "name": "Static @0.01",
     #     "nodeType": RewardStaticNodeFactory(startDC=0.01)
     # },
-    # {
-    #     "name": "Static @0.02",
-    #     "nodeType": RewardStaticNodeFactory(startDC=0.02)
-    # },
+    {
+        "name": "Static @0.02",
+        "nodeType": RewardStaticNodeFactory(startDC=0.02)
+    },
     # {
     #     "name": "Static @0.05",
     #     "nodeType": RewardStaticNodeFactory(startDC=0.05)
@@ -62,12 +62,16 @@ test = Test([
     #     "name": "Static @0.3",
     #     "nodeType": RewardStaticNodeFactory(startDC=0.3)
     # },
-    {
-        "name": "Static @0.99",
-        "nodeType": RewardStaticNodeFactory(startDC=0.99)
-    },
+    # {
+    #     "name": "Static @0.5",
+    #     "nodeType": RewardStaticNodeFactory(startDC=0.5)
+    # },
+    # {
+    #     "name": "Static @0.99",
+    #     "nodeType": RewardStaticNodeFactory(startDC=0.99)
+    # },
 
-], name="30-nodes", numTests=1, maxTime=maxTime, numNodes=30)
+], name="50-nodes", numTests=50, maxTime=maxTime, numNodes=50)
 
 
 results = test.run()

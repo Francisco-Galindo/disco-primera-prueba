@@ -179,7 +179,7 @@ class RewardNode(Node):
         elif cleanEnd and cleanStart:
             self.cleanDiscoveries += 1
         elif not cleanEnd or not cleanStart:
-            print("collision", self.env.now)
+            # print("collision", self.env.now)
             self.collisions += 1
             self._collisionTimes.append(math.ceil(self.env.now))
 
@@ -625,7 +625,8 @@ class Reward5Node(RewardNode):
 
 
 class RewardStaticNodeFactory(NodeFactory):
-    def __init__(self, startDC=0.05, alpha=0.0546875) -> None:
+    # def __init__(self, startDC=0.05, alpha=0.0546875) -> None:
+    def __init__(self, startDC=0.05, alpha=0.125) -> None:
         self.startDC = startDC
         self.alpha = alpha
 
