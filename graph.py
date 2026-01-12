@@ -75,7 +75,7 @@ test = Test([
     #     "nodeType": RewardStaticNodeFactory(startDC=0.99)
     # },
 
-], name=f"{numNodes}-nodes", numTests=1_000, maxTime=maxTime, numNodes=numNodes)
+], name=f"{numNodes}-nodes", numTests=500, maxTime=maxTime, numNodes=numNodes)
 
 
 results = test.run()

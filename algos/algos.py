@@ -107,9 +107,9 @@ class SimEnvironment:
         # print("simtime", maxTime+self._startTime)
         self._env.run(until=maxTime+self._startTime)
 
-        for n in self._nodes:
-            if n.id == 0:
-                print(n.latency - self._startTime)
+        # for n in self._nodes:
+        #     if n.id == 0:
+        #         print(n.latency - self._startTime)
 
         latencies = [(node.latency - self._startTime) for node in self._nodes]
         latencies.sort(reverse=True)
