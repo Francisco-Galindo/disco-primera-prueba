@@ -130,11 +130,12 @@ class RewardNode(Node):
 
         self.latency = 1_000_000_000
 
-        if self.id != 0 and self.numNeighbors >= 1:
+        if self.id != 0 and self.numNeighbors > 0:
             self._alignmentOffset = random.uniform(0, 1)
             self._slotOffset = random.randint(0, self.T-1)
 
         self._startingTime = self._alignmentOffset + self._slotOffset
+        # print('slot\t', self._slotOffset)
 
     def receiveMessage(self, msg: Dict):
 
@@ -171,6 +172,9 @@ class RewardNode(Node):
 
             if self.latency > 1_000_000 and self.hasDiscoveredAllNeighbors():
                 self.latency = math.ceil(self.env.now)
+                # if self.id == 0:
+                #     # print(f'latency\t{self.latency}, asdfasdf {self.slotOffset}')
+                #     print(f'lat\t{self.latency}\t{self.numNeighbors}')
                 self.finalDC = self._activeSlots / self.latency
                 # print("YA TERMINÉ", self.latency)
                 # print(self.finalDC, self._DC) # !!!
@@ -240,7 +244,6 @@ class RewardNode(Node):
             elif perf2Diff[1] >= 1.1 * perf2Diff[0]:
                 self._DC -= 0.01
 
-
     def genDifferenceList(self, lst):
         return [lst[i+1] - lst[i] for i in range(len(lst)-1)]
 
@@ -271,7 +274,9 @@ class RewardNode(Node):
             if isNew:
                 beaconTimes.append(beaconTime)
 
-            beaconTimes.append(beaconTime)
+            # else:
+            #     print('nomanches')
+            # beaconTimes.append(beaconTime)
 
         # if self.id == 0:
         #     print("LOLER", self._DC, self.env.now, len(beaconSlots), len(self._discovered))
@@ -627,6 +632,7 @@ class Reward5Node(RewardNode):
 class RewardStaticNodeFactory(NodeFactory):
     # def __init__(self, startDC=0.05, alpha=0.0546875) -> None:
     def __init__(self, startDC=0.05, alpha=0.125) -> None:
+    # def __init__(self, startDC=0.05, alpha=0.1) -> None:
         self.startDC = startDC
         self.alpha = alpha
 

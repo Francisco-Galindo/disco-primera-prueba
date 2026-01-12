@@ -1,6 +1,7 @@
 from algos.algos import Test
 from algos.fedab import FedabNodeFactory, FedabStochasticNodeFactory
 from algos.reward import RewardNodeFactory, Reward2NodeFactory, Reward3NodeFactory, Reward4NodeFactory, RewardStaticNodeFactory
+import sys
 
 # maxTime = 2500
 # maxTime = 5000
@@ -8,6 +9,9 @@ from algos.reward import RewardNodeFactory, Reward2NodeFactory, Reward3NodeFacto
 # maxTime = 700
 maxTime = 50_000
 
+numNodes = int(sys.argv[1])
+dc = int(sys.argv[2]) / 100
+print(numNodes, dc)
 test = Test([
     # {
     #     "name": "Fedab",
@@ -39,8 +43,8 @@ test = Test([
     #     "nodeType": RewardStaticNodeFactory(startDC=0.01)
     # },
     {
-        "name": "Static @0.02",
-        "nodeType": RewardStaticNodeFactory(startDC=0.02)
+        "name": "Static @0.05",
+        "nodeType": RewardStaticNodeFactory(startDC=dc)
     },
     # {
     #     "name": "Static @0.05",
@@ -71,7 +75,7 @@ test = Test([
     #     "nodeType": RewardStaticNodeFactory(startDC=0.99)
     # },
 
-], name="50-nodes", numTests=50, maxTime=maxTime, numNodes=50)
+], name=f"{numNodes}-nodes", numTests=1_000, maxTime=maxTime, numNodes=numNodes)
 
 
 results = test.run()
