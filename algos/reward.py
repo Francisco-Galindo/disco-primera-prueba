@@ -125,6 +125,7 @@ class RewardNode(Node):
         self._discovered: Set[int] = set()
         self.listening = False
 
+        # print(f'alpha: {self.alpha}')
         self._alignmentOffset = 0
         self._slotOffset = 0
 

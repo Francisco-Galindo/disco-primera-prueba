@@ -10,7 +10,7 @@ from multiprocessing import Pool
 from algos.node import NodeFactory, Node
 
 
-def convertToCDF(inputList: List[int], n):
+def getCDF(inputList: List[int], n):
     cum = list(accumulate(inputList))
     cdf = list(map(lambda x: x / n, cum))
 
@@ -88,6 +88,7 @@ class SimEnvironment:
 
     def run(self, maxTime):
 
+        firstNode = min(self._nodes, key=attrgetter('slotOffset'))
         lastNode = max(self._nodes, key=attrgetter('slotOffset'))
         # if "Reward" in self._nodeFactory.nodeTypeName:
         #     self._startTime = lastNode.slotOffset + lastNode.alignmentOffset + 100 * random.random()
@@ -104,39 +105,33 @@ class SimEnvironment:
             self._env.process(node.run(maxTime+self._startTime))
 
         self._stopTime = maxTime
-        # print("simtime", maxTime+self._startTime)
         self._env.run(until=maxTime+self._startTime)
 
-        # for n in self._nodes:
-        #     if n.id == 0:
-        #         print(n.latency - self._startTime)
-
         latencies = [(node.latency - self._startTime) for node in self._nodes]
-        latencies.sort(reverse=True)
-        latency = math.ceil(min(latencies[0], maxTime-1))
+        latency = math.ceil(min(max(latencies), maxTime-1))
 
-        collisions_per_node = [(node.collisions) for node in self._nodes]
+        # collisions_per_node = [(node.collisions) for node in self._nodes]
 
-        discoveries = [0] * maxTime
-        for node in self._nodes:
-            for el in node.discoveredTimes:
-                try:
-                    discoveries[math.ceil(el - self._startTime)] += 1
-                except IndexError:
-                    print("INDEX ERROR", el-self._startTime)
+        # discoveries = [0] * maxTime
+        # for node in self._nodes:
+        #     for el in node.discoveredTimes:
+        #         try:
+        #             discoveries[math.ceil(el - self._startTime)] += 1
+        #         except IndexError:
+        #             print("INDEX ERROR", el-self._startTime)
 
-        accumDiscoveries = list(accumulate(discoveries))
+        # accumDiscoveries = list(accumulate(discoveries))
 
-        colls = [0] * maxTime
-        for node in self._nodes:
-            for el in node.collisionTimes:
-                try:
-                    colls[math.ceil(el - self._startTime)] += 1
-                except IndexError:
-                    continue
-                    # print("INDEX ERROR COlls", el-self._startTime)
+        # colls = [0] * maxTime
+        # for node in self._nodes:
+        #     for el in node.collisionTimes:
+        #         try:
+        #             colls[math.ceil(el - self._startTime)] += 1
+        #         except IndexError:
+        #             continue
+        #             # print("INDEX ERROR COlls", el-self._startTime)
 
-        accumColls = list(accumulate(colls))
+        # accumColls = list(accumulate(colls))
 
         DCAvg = [0] * maxTime
         finalDC_per_node = [0]
@@ -157,35 +152,13 @@ class SimEnvironment:
 
             finalDC_per_node = [(node.finalDC) for node in self._nodes]
 
-        # print("TOTALCOLISIONS:", sum(collisions_per_node))
         self._results["finalDC"] = sum(finalDC_per_node) / self._N
-        self._results["collisions"] = 100 * sum(collisions_per_node) / (self._N * (self._stopTime - self._startTime))
-        self._results["accumDiscoveries"] = accumDiscoveries
-        self._results["accumCollisions"] = accumColls
+        # self._results["collisions"] = 100 * sum(collisions_per_node) / (self._N * (self._stopTime - self._startTime))
+        # self._results["accumDiscoveries"] = accumDiscoveries
+        # self._results["accumCollisions"] = accumColls
         self._results["DCAvg"] = DCAvg
         self._results["latency"] = latency
-
-
-        # if latency > maxTime-2:
-        #     absOffset = min(lastNode.alignmentOffset, math.fabs(1 - lastNode.alignmentOffset))
-        #     m = lastNode.m
-        #     T = lastNode.T
-        #     slotOffset = lastNode.slotOffset
-        #     alignmentOffset = lastNode.alignmentOffset
-        #     alpha = lastNode.alpha
-
-        #     if slotOffset <= math.ceil(m / 2) - 1 and alignmentOffset > 1-alpha:
-        #         print("Correcto 1")
-        #     elif slotOffset == math.ceil(m / 2) and alignmentOffset < alpha:
-        #         print("Correcto 2")
-        #     elif slotOffset >= T - (math.ceil(m / 2) - 1) and alignmentOffset < alpha:
-        #         print("Correcto 3")
-        #     elif slotOffset == T - (math.ceil(m / 2)) and alignmentOffset < alpha:
-        #         print("Correcto 4")
-        #     elif absOffset < lastNode.alpha:
-        #         print(f"Correcto, {self._startTime}, so: {lastNode.slotOffset}, \tao: {lastNode.alignmentOffset}, \tdiff: {absOffset}")
-        #     else:
-        #         print(f"Fallo, {self._startTime}, \tso: {lastNode.slotOffset}, \tao: {lastNode.alignmentOffset}, \tdiff: {absOffset}")
+        self._results["first-node-latency"] = firstNode.latency
 
         return self._results
 
@@ -193,7 +166,8 @@ class SimEnvironment:
 class Test:
     def __init__(self, algorithms: List[Algo],  name="test", numTests=1000, maxTime=2000, numNodes=10) -> None:
         self.numTests = numTests
-        self.timeToFinishResults = {}
+        self.latencyCDF = {}
+        self.firstNodeLatencyDist = {}
         self.discoveryProportionResults = {}
         self.collisionResults = {}
         self.DCAvgResults = {}
@@ -205,8 +179,6 @@ class Test:
     def runSingleTest(self, algorithm):
         environment = SimEnvironment("", N=self.numNodes, nodeFactory=algorithm["nodeType"])
         results = environment.run(self.maxTime)
-        # print("HOLA")
-        # print(results)
         return results
 
     def writeResultToFile(self, filename, result, xLabel: str, xLength: int):
@@ -238,37 +210,39 @@ class Test:
 
     def run(self):
         for algorithm in self.algorithms:
-            timeToFinish = [0] * self.maxTime
+            latencyDist = [0] * self.maxTime
+            firstNodeLatencyDist = [0] * self.maxTime
             accumDiscoveries = [0] * self.maxTime
             accumCollisions = [0] * self.maxTime
             DCAvg = [0] * self.maxTime
             collisions = 0
             finalDC = 0
-            # print(algorithm["name"])
             with Pool(max(1, os.cpu_count()-1)) as p:
                 jobOutput = p.map(self.runSingleTest, [algorithm] * self.numTests)
                 for el in jobOutput:
-                    timeToFinish[el["latency"]] += 1
-                    collisions += el["collisions"] / self.numTests
-                    finalDC += el["finalDC"] / self.numTests
+                    latencyDist[el["latency"]] += 1
+                    firstNodeLatencyDist[el["first-node-latency"]] += 1
+                    # collisions += el["collisions"] / self.numTests
+                    # finalDC += el["finalDC"] / self.numTests
                     for i, v in enumerate(el["accumDiscoveries"]):
                         accumDiscoveries[i] += v
                     for i, v in enumerate(el["accumCollisions"]):
                         accumCollisions[i] += v
                     for i, v in enumerate(el["DCAvg"]):
                         DCAvg[i] += v / self.numTests
-                # print(f"AVG COLLISIONS per node per test: {collisions / self.numTests}")
 
-            self.timeToFinishResults[algorithm["name"]] = convertToCDF(timeToFinish, self.numTests)
-            self.discoveryProportionResults[algorithm["name"]] = list(map(lambda x: x / (self.numTests * self.numNodes * (self.numNodes - 1)), accumDiscoveries))
-            self.collisionResults[algorithm["name"]] = accumCollisions
-            if "Reward" in algorithm["name"]:
-                self.DCAvgResults[algorithm["name"]] = DCAvg
-            print("ACCUMDISCOVERIES", accumDiscoveries[-1])
-            print("COLLISIONS", algorithm["name"], collisions)
-            print("FINALDC", algorithm["name"], finalDC)
+            self.latencyCDF[algorithm["name"]] = getCDF(latencyDist, self.numTests)
+            self.firstNodeLatencyDist[algorithm["name"]] = firstNodeLatencyDist
+            # self.discoveryProportionResults[algorithm["name"]] = list(map(lambda x: x / (self.numTests * self.numNodes * (self.numNodes - 1)), accumDiscoveries))
+            # self.collisionResults[algorithm["name"]] = accumCollisions
+            # if "Reward" in algorithm["name"]:
+            #     self.DCAvgResults[algorithm["name"]] = DCAvg
+            # print("ACCUMDISCOVERIES", accumDiscoveries[-1])
+            # print("COLLISIONS", algorithm["name"], collisions)
+            # print("FINALDC", algorithm["name"], finalDC)
 
-        self.writeResultToFile(f'./data-sweep-pre/{self.name}-time-to-finish-{self.numNodes}-nodes.tsv', self.timeToFinishResults, "time_to_finish", self.maxTime)
-        self.writeResultToFile(f'./data-sweep-pre/{self.name}-discoveryProportion-{self.numNodes}-nodes.tsv', self.discoveryProportionResults, "discovery_proportion", self.maxTime)
-        self.writeResultToFile(f'./data-sweep-pre/{self.name}-collisions-{self.numNodes}-nodes.tsv', self.collisionResults, "collisions", self.maxTime)
-        self.writeResultToFile(f'./data-sweep-pre/{self.name}-DC-{self.numNodes}-nodes.tsv', self.DCAvgResults, "DC-avg", self.maxTime)
+        self.writeResultToFile(f'./discovery-data/{self.name}-latency-cdf.tsv', self.latencyCDF, "time_to_finish", self.maxTime)
+        self.writeResultToFile(f'./discovery-data/{self.name}-first-node-latency.tsv', self.firstNodeLatencyDist, "first-node-latency", self.maxTime)
+        # self.writeResultToFile(f'./discovery-data/{self.name}-discoveryProportion-{self.numNodes}-nodes.tsv', self.discoveryProportionResults, "discovery_proportion", self.maxTime)
+        # self.writeResultToFile(f'./discovery-data/{self.name}-collisions.tsv', self.collisionResults, "collisions", self.maxTime)
+        # self.writeResultToFile(f'./discovery-data/{self.name}-DC-{self.numNodes}-nodes.tsv', self.DCAvgResults, "DC-avg", self.maxTime)
