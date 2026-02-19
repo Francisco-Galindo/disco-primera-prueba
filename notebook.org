@@ -1,0 +1,70 @@
+
+
+
+
+
+360.254
+716.934
+980.51
+1442.85
+
+#+BEGIN_SRC python
+  import csv
+
+  def getMean(n, DC, T, alpha):
+      mean = 0
+      with open(f'./discovery-data/{n}-nodes-{round(DC/ 100, 2)}-dc-{T}-T-{alpha}-alpha-first-node-latency.tsv', 'r') as file:
+          tsv_reader = csv.reader(file, delimiter='\t')
+          ac = 0
+          population = 0
+          for row in tsv_reader:
+              try:
+                  lat = int(row[0])
+                  freq = int(row[1])
+
+                  term = lat * freq
+
+                  population += freq
+                  ac += term
+              except:
+                  continue
+
+          mean = ac / population
+
+      return mean
+
+  def harmonic(n):
+      s = 0
+      for i in range(1, n+1):
+          s += 1 / i
+
+      return s
+
+  data = [["n", "E[latency]_dependentfi", "E[latency]_independent", "E[latency]_exp"]]
+  data.append(None)
+
+  T = 100
+  DC = 5
+  alpha = 0.125
+  L = 1
+  for n in [2, 5, 10, 20, 50]:
+      numerator = T * harmonic(n-1)
+      p_succ_1 = ((2 * DC**2 * (L - 3 * alpha)) / T)  *  (1 - (4 * DC * alpha)/T)**(n-2)
+      p_succ_2 = (2 * DC**2 * (L - 3 * alpha) / T) * (1 - (2*alpha)/T)**(2*DC*(n-2))
+      val_inf =  numerator / p_succ_1
+      val_sup =  numerator / p_succ_2
+      row = [n, round(val_inf), round(val_sup), round(getMean(n, DC, T, alpha))]
+      data.append(row)
+
+
+  return data
+#+END_SRC
+
+#+RESULTS:
+|  n | E[latency]_inf | E[latency]_sup | E[latency]_exp |
+|----+---------------+---------------+---------------|
+|  2 |           320 |           320 |           369 |
+|  5 |           719 |           719 |           690 |
+| 10 |          1109 |          1106 |           990 |
+| 20 |          1791 |          1781 |          1525 |
+| 50 |          4832 |          4766 |          3300 |
