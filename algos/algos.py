@@ -221,7 +221,7 @@ class Test:
                 jobOutput = p.map(self.runSingleTest, [algorithm] * self.numTests)
                 for el in jobOutput:
                     latencyDist[el["latency"]] += 1
-                    firstNodeLatencyDist[el["first-node-latency"]] += 1
+                    firstNodeLatencyDist[min(el["first-node-latency"], self.maxTime-1)] += 1
                     # collisions += el["collisions"] / self.numTests
                     # finalDC += el["finalDC"] / self.numTests
                     for i, v in enumerate(el["accumDiscoveries"]):
