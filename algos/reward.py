@@ -35,6 +35,7 @@ class RewardNode(Node):
         self.listening = False
         self.transmitting = False
         self.env = env
+        self.inPipeCount = 0
         self.inPipe = []
         self.outPipe = mesgPipe
         self.latency = 10_000_000_000
@@ -138,6 +139,53 @@ class RewardNode(Node):
         self._startingTime = self._alignmentOffset + self._slotOffset
         # print('slot\t', self._slotOffset)
 
+    # def receiveMessage(self, msg: Dict):
+
+    #     self._receivingMessage = True
+
+    #     cleanStart = (self.inPipeCount == 0)
+
+    #     self.inPipeCount += 1
+
+    #     sender = msg['from']
+
+    #     yield self.env.timeout(msg["alpha"])
+
+    #     # Remove this new element after listening time is over
+    #     self.inPipeCount -= 1
+
+    #     if self.env.now - self.lastListenSartTime > 1 - self.alpha:
+    #         return
+
+    #     cleanEnd = (self.inPipeCount == 0)
+    #     if cleanEnd:
+    #         self._receivingMessage = False
+
+    #     if cleanEnd and cleanStart and msg["from"] not in self._discovered:
+    #         now = self.env.now
+
+    #         self._discovered.add(msg["from"])
+    #         # Too much memory
+    #         # self._discoveredTimes.append(math.ceil(now))
+
+    #         if self.latency > 1_000_000 and self.hasDiscoveredAllNeighbors():
+    #             self.latency = math.ceil(self.env.now)
+    #             # if self.id == 0:
+    #             #     # print(f'latency\t{self.latency}, asdfasdf {self.slotOffset}')
+    #             #     print(f'lat\t{self.latency}\t{self.numNeighbors}')
+    #             self.finalDC = self._activeSlots / self.latency
+    #             # print("YA TERMINÉ", self.latency)
+    #             # print(self.finalDC, self._DC) # !!!
+    #             # print("DC", self._activeSlots / self.latency)
+
+    #     elif cleanEnd and cleanStart:
+    #         self.cleanDiscoveries += 1
+    #     elif not cleanEnd or not cleanStart:
+    #         self.collisions += 1
+
+    #         # TOO MUCH MEMORY
+    #         # self._collisionTimes.append(math.ceil(self.env.now))
+
     def receiveMessage(self, msg: Dict):
 
         self._receivingMessage = True
@@ -169,7 +217,7 @@ class RewardNode(Node):
             now = self.env.now
 
             self._discovered.add(msg["from"])
-            self._discoveredTimes.append(math.ceil(now))
+            # self._discoveredTimes.append(math.ceil(now))
 
             if self.latency > 1_000_000 and self.hasDiscoveredAllNeighbors():
                 self.latency = math.ceil(self.env.now)
@@ -186,8 +234,7 @@ class RewardNode(Node):
         elif not cleanEnd or not cleanStart:
             # print("collision", self.env.now)
             self.collisions += 1
-            self._collisionTimes.append(math.ceil(self.env.now))
-
+            # self._collisionTimes.append(math.ceil(self.env.now))
 
     def hasDiscoveredAllNeighbors(self):
         return self.numNeighbors == len(self._discovered)
@@ -202,18 +249,11 @@ class RewardNode(Node):
             "from": self.id
         }
 
-        # if self.listening or self.transmitting:
-        #     print("PAPEADO 2")
-        #     return
-        # while self._receivingMessage:
-        #     yield self.env.timeout(self._alpha / 4)
-        # print(f"{now}: \t{self.id} starts TX")
         self.listening = False
         self.transmitting = True
         self.outPipe.put(msg)
         yield self.env.timeout(self._alpha)
         self.transmitting = False
-        # print(f"{self.env.now}: \t{self.id} stops TX")
 
     def updateDutyCycle(self):
         if len(self._totalDiscoveries) < 4:
@@ -275,12 +315,6 @@ class RewardNode(Node):
             if isNew:
                 beaconTimes.append(beaconTime)
 
-            # else:
-            #     print('nomanches')
-            # beaconTimes.append(beaconTime)
-
-        # if self.id == 0:
-        #     print("LOLER", self._DC, self.env.now, len(beaconSlots), len(self._discovered))
 
         for beaconTime in beaconTimes:
             if beaconTime == 0:
@@ -289,6 +323,7 @@ class RewardNode(Node):
                 start_delayed(self.env, self.activeSlotSequence(), beaconTime)
         # Won't run without it
         yield self.env.timeout(1)
+        return
 
     def activeSlotSequence(self):
         # if self.listening or self.transmitting:
@@ -304,22 +339,23 @@ class RewardNode(Node):
         # print(f"{self.env.now}: \t{self.id} starts NORMAL LISTENING")
         self._cycleJustStarted = False
         self.lastListenSartTime = self.env.now
+        # self.inPipeCount = 0
         self.listening = True
         yield self.env.timeout(1 - 2 * self.alpha)
 
         self.inPipe = []
+        self.inPipeCount = 0
         self.listening = False
         self.env.process(self.doTX())
         # print(f"{self.env.now}: \t{self.id} stops LISTENING")
 
     def run(self, maxtime: int):
         yield self.env.timeout(self._startingTime)
+        # print(f"Current Heap Size: {len(self.env._queue)}")
 
-        for i in range(0, math.ceil(maxtime+1), 100):
-            if i == 0:
-                self.env.process(self.doCycleStart())
-            else:
-                start_delayed(self.env, self.doCycleStart(), i)
+        while self.env.now < maxtime and not self._shouldStop:
+            self.env.process(self.doCycleStart())
+            yield self.env.timeout(100)
 
         self._discoveredTimes.sort()
         self._collisionTimes.sort()
@@ -654,6 +690,7 @@ class RewardStaticNode(RewardNode):
         self.listening = False
         self.transmitting = False
         self.env = env
+        self.inPipeCount = 0
         self.inPipe = []
         self.outPipe = mesgPipe
         self.latency = 10_000_000_000

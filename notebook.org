@@ -8,30 +8,35 @@
 980.51
 1442.85
 
+#+NAME: helper_function_block
 #+BEGIN_SRC python
   import csv
+  import os
 
   def getMean(n, DC, T, alpha):
       mean = 0
-      with open(f'./discovery-data/{n}-nodes-{round(DC/ 100, 2)}-dc-{T}-T-{alpha}-alpha-first-node-latency.tsv', 'r') as file:
-          tsv_reader = csv.reader(file, delimiter='\t')
-          ac = 0
-          population = 0
-          for row in tsv_reader:
-              try:
-                  lat = int(row[0])
-                  freq = int(row[1])
+      try:
+          with open(f'{os.getcwd()}/discovery-data/{n}-nodes-{round(DC/ 100, 2)}-dc-{T}-T-{alpha}-alpha-first-node-latency.tsv', 'r') as file:
+              tsv_reader = csv.reader(file, delimiter='\t')
+              ac = 0
+              population = 0
+              for row in tsv_reader:
+                  try:
+                      lat = int(row[0])
+                      freq = int(row[1])
 
-                  term = lat * freq
+                      term = lat * freq
 
-                  population += freq
-                  ac += term
-              except:
-                  continue
+                      population += freq
+                      ac += term
+                  except:
+                      continue
 
-          mean = ac / population
+              mean = ac / population
 
-      return mean
+          return mean
+      except:
+          return float('nan')
 
   def harmonic(n):
       s = 0
@@ -40,6 +45,10 @@
 
       return s
 
+#+END_SRC
+
+#+BEGIN_SRC python :noweb yes
+  <<helper_function_block>>
   data = [["n", "E[latency]_dependentfi", "E[latency]_independent", "E[latency]_exp"]]
   data.append(None)
 
@@ -61,10 +70,72 @@
 #+END_SRC
 
 #+RESULTS:
-|  n | E[latency]_inf | E[latency]_sup | E[latency]_exp |
-|----+---------------+---------------+---------------|
-|  2 |           320 |           320 |           369 |
-|  5 |           719 |           719 |           690 |
-| 10 |          1109 |          1106 |           990 |
-| 20 |          1791 |          1781 |          1525 |
-| 50 |          4832 |          4766 |          3300 |
+|  n | E[latency]_dependentfi | E[latency]_independent | E[latency]_exp |
+|----+-----------------------+-----------------------+---------------|
+|  2 |                   320 |                   320 |           367 |
+|  5 |                   719 |                   719 |           683 |
+| 10 |                  1109 |                  1106 |          1021 |
+| 20 |                  1791 |                  1781 |          1489 |
+| 50 |                  4832 |                  4766 |          3499 |
+
+
+#+BEGIN_SRC python :noweb yes :results graphics file output :file papu-graph.png
+  <<helper_function_block>>
+
+  import math
+  import numpy as np
+  import matplotlib
+  import matplotlib.pyplot as plt
+  from scipy.interpolate import make_interp_spline
+
+  data = [["n", "E[latency]_dependentfi", "E[latency]_independent", "E[latency]_exp"]]
+  data.append(None)
+
+  T = 100
+  alpha = 0.125
+  L = 1
+  dcs = [1, 5, 10, 25, 50, 75, 90, 99]
+
+  x = np.array(dcs)
+  x_smooth = np.linspace(x.min(), x.max(), 300)
+  datasets = {}
+  for n in [5, 10,20, 30, 40, 50]:
+      means = []
+      valid_dcs = []
+      for dc in dcs:
+          val = getMean(n, dc, T, alpha)
+          if not math.isnan(val):
+              means.append(getMean(n, dc, T, alpha))
+              valid_dcs.append(dc)
+      datasets[f'{n} nodes'] = (np.array(means), np.array(valid_dcs))
+
+  for label, data in datasets.items():
+      plt.loglog(data[1], data[0], 'o', alpha=0.25)
+      
+      log_x = np.log10(data[1])
+      log_y = np.log10(data[0])
+      
+      log_x_smooth = np.linspace(log_x.min(), log_x.max(), 500)
+      spline = make_interp_spline(log_x, log_y, k=3)
+      log_y_smooth = spline(log_x_smooth)
+      
+      min_idx = np.argmin(log_y_smooth)
+      min_x = 10**log_x_smooth[min_idx]
+      min_y = 10**log_y_smooth[min_idx]
+      
+      plt.plot(10**log_x_smooth, 10**log_y_smooth, label=f'{label}')
+      
+      plt.plot(min_x, min_y, 'r*')
+      
+  plt.title(f'Latencias en función de DC')
+  plt.xlabel(f'dc')
+  plt.yscale('log', base=10)
+  plt.xscale('log', base=10)
+  plt.ylabel(f'mean latency')
+  plt.legend()
+  # plt.grid(True)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:papu-graph.png]]

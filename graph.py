@@ -26,7 +26,8 @@ numerator = T * harmonic(n-1)
 DC = int(dc * 100)
 p_succ_1 = ((2 * DC**2 * (L - 3 * alpha)) / T) * (1 - (4 * DC * alpha)/T)**(n-2)
 expectedTime = numerator / p_succ_1
-maxTime = int(expectedTime * 10)
+maxTime = min(100_000, int(expectedTime * 10))
+print('maxtime', maxTime)
 
 test = Test([
     {
@@ -36,5 +37,7 @@ test = Test([
 
 ], name=f"{numNodes}-nodes-{dc}-dc-{T}-T-{alpha}-alpha", numTests=trials, maxTime=maxTime, numNodes=numNodes)
 
+
+print('hola')
 
 results = test.run()
