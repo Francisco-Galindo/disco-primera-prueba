@@ -1,17 +1,13 @@
+* Análisis de resultados con un DC constante
 
-
-
-
-
-360.254
-716.934
-980.51
-1442.85
+El objetivo es encontrar el DC óptimo para una N dada.
 
 #+NAME: helper_function_block
 #+BEGIN_SRC python
   import csv
   import os
+  import pandas as pd
+  import numpy as np
 
   def getMean(n, DC, T, alpha):
       mean = 0
@@ -38,6 +34,23 @@
       except:
           return float('nan')
 
+  def getStats(n, DC, T, alpha):
+      mean = 0
+      try:
+          df = pd.read_csv(f'./discovery-data/{n}-nodes-{round(DC/ 100, 2)}-dc-{T}-T-{alpha}-alpha-first-node-latency.tsv', sep='\t')
+
+          val_col = df.iloc[:, 0]
+          freq_col = df.iloc[:, 1]
+
+          N = freq_col.sum()
+          mean = (val_col * freq_col).sum() / N
+
+          var = ((val_col - mean)**2 * freq_col).sum() / (N - 1)
+          sem = np.sqrt(var) / np.sqrt(N)
+          return mean, sem
+      except:
+          return float('nan'), float('nan')
+
   def harmonic(n):
       s = 0
       for i in range(1, n+1):
@@ -46,6 +59,16 @@
       return s
 
 #+END_SRC
+
+El modelo matemático propuesto es:
+
+\[
+E[t]_{dependent} = \frac{T^2 H_{n-1}}{2 DC^2 (L - 3\alpha) \left(1 - \frac{4 DC \alpha}{T}\right)^{n-2}}
+\]
+
+\[
+E[t]_{independent} = \frac{T^2 H_{n-1}}{2 DC^2 (L - 3\alpha) \left(1 - \frac{2\alpha}{T}\right)^{2DC(n-2)}}
+\]
 
 #+BEGIN_SRC python :noweb yes
   <<helper_function_block>>
@@ -71,15 +94,15 @@
 
 #+RESULTS:
 |  n | E[latency]_dependentfi | E[latency]_independent | E[latency]_exp |
-|----+-----------------------+-----------------------+---------------|
-|  2 |                   320 |                   320 |           367 |
-|  5 |                   719 |                   719 |           683 |
-| 10 |                  1109 |                  1106 |          1021 |
-| 20 |                  1791 |                  1781 |          1489 |
-| 50 |                  4832 |                  4766 |          3499 |
+|----+------------------------+------------------------+----------------|
+|  2 |                    320 |                    320 |            367 |
+|  5 |                    719 |                    719 |            683 |
+| 10 |                   1109 |                   1106 |           1021 |
+| 20 |                   1791 |                   1781 |           1489 |
+| 50 |                   4832 |                   4766 |           3289 |
 
 
-#+BEGIN_SRC python :noweb yes :results graphics file output :file papu-graph.png
+#+BEGIN_SRC python :noweb yes :results graphics file output :file plots/papu-graph.png
   <<helper_function_block>>
 
   import math
@@ -88,16 +111,12 @@
   import matplotlib.pyplot as plt
   from scipy.interpolate import make_interp_spline
 
-  data = [["n", "E[latency]_dependentfi", "E[latency]_independent", "E[latency]_exp"]]
-  data.append(None)
-
   T = 100
   alpha = 0.125
   L = 1
-  dcs = [1, 5, 10, 25, 50, 75, 90, 99]
+  # dcs = [1, 5, 10, 25, 50, 75, 90, 99]
+  dcs = [1, 5, 10, 25, 50, 75]
 
-  x = np.array(dcs)
-  x_smooth = np.linspace(x.min(), x.max(), 300)
   datasets = {}
   for n in [5, 10,20, 30, 40, 50]:
       means = []
@@ -115,7 +134,7 @@
       log_x = np.log10(data[1])
       log_y = np.log10(data[0])
       
-      log_x_smooth = np.linspace(log_x.min(), log_x.max(), 500)
+      log_x_smooth = np.linspace(log_x.min(), log_x.max(), 128)
       spline = make_interp_spline(log_x, log_y, k=3)
       log_y_smooth = spline(log_x_smooth)
       
@@ -128,14 +147,118 @@
       plt.plot(min_x, min_y, 'r*')
       
   plt.title(f'Latencias en función de DC')
-  plt.xlabel(f'dc')
+  plt.xlabel(f'DC [%]')
   plt.yscale('log', base=10)
   plt.xscale('log', base=10)
-  plt.ylabel(f'mean latency')
+  plt.ylabel(f'mean latency [time units]')
   plt.legend()
   # plt.grid(True)
 
 #+END_SRC
 
 #+RESULTS:
-[[file:papu-graph.png]]
+[[file:plots/papu-graph.png]]
+
+Esto está mal!
+
+** Posible causa (no se pudo probar, murió el cluster):
+- Cuando un nodo $A$ envía un mensaje y el nodo $B$ /no está escuchando/ el mensaje es descartado.
+  - Ahora, un tiempo corto después, $B se pone a escuchar, y, desde su perspectiva, no hay ningún mensaje de $A$
+  - El mensaje de $A$ podría seguir activo! Pero como $B$ lo descartó desde el principio, ya no ve eso
+  - Durante una ventana de tiempo, puede llegar un mensaje de un nodo $C$ que /debería/ colisionar con el mensaje de $A$
+  - Para $B$, no hay colisión y ocurre un descubrimiento exitoso
+  - Entre mayor sea el DC, más probabe se hace esta situacón, por lo que aumenta la discrepancia con respecto al valor teórico
+
+*** TODO Modificar este comportamiento ver si los resultados mejoran
+
+** Cosa buena
+
+Ahora, la creación de estas gráficas es automática y resistente a /datapoints/ faltantes :).
+
+#+BEGIN_SRC python :noweb yes :results graphics file output :file plots/papu-graph-ci.png
+  <<helper_function_block>>
+
+  import math
+  import numpy as np
+  import matplotlib
+  import matplotlib.pyplot as plt
+  from scipy.interpolate import make_interp_spline
+
+  T = 100
+  alpha = 0.125
+  L = 1
+  dcs = [1, 5, 10, 25, 50, 75]
+  nodes = [10, 20, 40]
+
+  datasets = {}
+  for n in nodes:
+      theos = []
+      means = []
+      cis = []
+      valid_dcs = []
+      for dc in dcs:
+
+          numerator = T * harmonic(n-1)
+          p_succ_1 = ((2 * dc**2 * (L - 3 * alpha)) / T)  *  (1 - (4 * dc * alpha)/T)**(n-2)
+          t =  numerator / p_succ_1
+          theos.append(t)
+
+          mean, sem = getStats(n, dc, T, alpha)
+          if not math.isnan(mean):
+              means.append(mean)
+              confidence_interval = 1.96 * sem
+              cis.append(confidence_interval)
+              valid_dcs.append(dc)
+      datasets[f'{n} nodes'] = (np.array(valid_dcs), np.array(means), np.array(cis), np.array(theos))
+
+  for label, data in datasets.items():
+      plt.loglog(data[0], data[1], 'o', alpha=0.25)
+      # plt.fill_between(data[0], data[1] - data[2], data[1] + data[2], alpha=0.125)
+      
+      log_x = np.log10(data[0])
+      
+      log_y = np.log10(data[1])
+      log_y_sem = np.log10(data[2])
+      log_y_theo = np.log10(data[3])
+      
+      log_x_smooth = np.linspace(log_x.min(), log_x.max(), 128)
+      
+      spline = make_interp_spline(log_x, log_y, k=3)
+      spline_sem = make_interp_spline(log_x, log_y_sem, k=3)
+      spline_theo = make_interp_spline(log_x, log_y_theo, k=3)
+      
+      log_y_smooth = spline(log_x_smooth)
+      log_y_smooth_sem = spline_sem(log_x_smooth)
+      log_y_smooth_theo = spline_theo(log_x_smooth)
+      
+      min_idx = np.argmin(log_y_smooth)
+      min_x = 10**log_x_smooth[min_idx]
+      min_y = 10**log_y_smooth[min_idx]
+      
+      plt.plot(10**log_x_smooth, 10**log_y_smooth, label=f'{label}')
+      color = plt.gca().lines[-1].get_color()
+      plt.plot(10**log_x_smooth, 10**log_y_smooth_theo, '--', label=f'{label}-teo', color=color)
+      plt.fill_between(10**log_x_smooth, 10**log_y_smooth - 10**log_y_smooth_sem, 10**log_y_smooth + 10**log_y_smooth_sem, alpha=0.25, color=color)
+      
+      plt.plot(min_x, min_y, 'r*')
+
+
+  plt.title(f'Latencias en función de DC')
+  plt.xlabel(f'DC [%]')
+  plt.yscale('log', base=10)
+  plt.xscale('log', base=10)
+  plt.ylabel(f'mean latency [time units]')
+  plt.legend()
+  # plt.grid(True)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:plots/papu-graph-ci.png]]
+
+
+- Simular para ver si sí se pega, así ya sabemos si queda el modelo y la simulación
+- Aplicar reinforcment learning
+- Tomar en cuenta nodos encontrados, tasa de reencuentros (cuantos descubrimientos son nuevos)
+- Modificar el duty cada que me encienda
+- Funcion de recompensa
