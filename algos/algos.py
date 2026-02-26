@@ -78,7 +78,8 @@ class SimEnvironment:
 
                 done = True
                 for node in self._nodes:
-                    if node.id != msg["from"] and node.listening:
+                    # if node.id != msg["from"] and node.listening:
+                    if node.id != msg["from"]:
                         self._env.process(node.receiveMessage(msg))
                     if not node.neighborsDiscovered == self._N - 1:
                         done = False

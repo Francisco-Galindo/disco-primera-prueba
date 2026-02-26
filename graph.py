@@ -38,6 +38,4 @@ test = Test([
 ], name=f"{numNodes}-nodes-{dc}-dc-{T}-T-{alpha}-alpha", numTests=trials, maxTime=maxTime, numNodes=numNodes)
 
 
-print('hola')
-
 results = test.run()

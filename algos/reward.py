@@ -2,6 +2,7 @@ import math
 import random
 import simpy
 import simpy.core
+import queue
 from simpy.util import start_delayed
 from algos.node import Node, NodeFactory
 from typing import Dict, TypedDict, Set, List
@@ -36,7 +37,7 @@ class RewardNode(Node):
         self.transmitting = False
         self.env = env
         self.inPipeCount = 0
-        self.inPipe = []
+        self.inPipe = queue.Queue()
         self.outPipe = mesgPipe
         self.latency = 10_000_000_000
         self.collisions = 0
@@ -188,32 +189,33 @@ class RewardNode(Node):
 
     def receiveMessage(self, msg: Dict):
 
-        self._receivingMessage = True
-
         cleanStart = True
-        if len(self.inPipe) != 0:
+        if not self.inPipe.empty():
             cleanStart = False
 
-        self.inPipe.append(msg["from"])
-        # sender = msg["from"]
-        # print(f"{self.env.now}: \t{self.id} is RECEIVING A MESSAGE from {sender}")
-        # print(f"{self.env.now}: \t\t\t{self.id} receives message from {msg["from"]}")
+        sender = msg["from"]
+        self.inPipe.put(sender)
+
+        listeningFromTheStart = self.listening
 
         yield self.env.timeout(msg["alpha"])
 
-        if self.env.now - self.lastListenSartTime > 1 - self.alpha:
-            return
+        # if self.env.now - self.lastListenSartTime > 1 - self.alpha:
+        #     return
 
         # Remove this new element after listening time is over
-        self.inPipe = list(filter(lambda x: x != msg["from"], self.inPipe))
+        sender_after = self.inPipe.get()
 
         cleanEnd = True
-        if len(self.inPipe) != 0:
+        if not self.inPipe.empty():
             cleanEnd = False
-        else:
-            self._receivingMessage = False
 
-        if cleanEnd and cleanStart and msg["from"] not in self._discovered:
+        if not listeningFromTheStart:
+            return
+
+        cleanDiscovery = cleanEnd and cleanStart
+        newDiscovery = cleanDiscovery and sender not in self._discovered
+        if newDiscovery:
             now = self.env.now
 
             self._discovered.add(msg["from"])
@@ -229,9 +231,9 @@ class RewardNode(Node):
                 # print(self.finalDC, self._DC) # !!!
                 # print("DC", self._activeSlots / self.latency)
 
-        elif cleanEnd and cleanStart:
+        elif cleanDiscovery:
             self.cleanDiscoveries += 1
-        elif not cleanEnd or not cleanStart:
+        elif not cleanDiscovery:
             # print("collision", self.env.now)
             self.collisions += 1
             # self._collisionTimes.append(math.ceil(self.env.now))
@@ -343,7 +345,7 @@ class RewardNode(Node):
         self.listening = True
         yield self.env.timeout(1 - 2 * self.alpha)
 
-        self.inPipe = []
+        # self.inPipe = []
         self.inPipeCount = 0
         self.listening = False
         self.env.process(self.doTX())
@@ -384,7 +386,7 @@ class Reward2Node(RewardNode):
         self.listening = False
         self.transmitting = False
         self.env = env
-        self.inPipe = []
+        self.inPipe = queue.Queue()
         self.outPipe = mesgPipe
         self.latency = 10_000_000_000
         self.collisions = 0
@@ -467,7 +469,7 @@ class Reward3Node(RewardNode):
         self.listening = False
         self.transmitting = False
         self.env = env
-        self.inPipe = []
+        self.inPipe = queue.Queue()
         self.outPipe = mesgPipe
         self.latency = 10_000_000_000
         self.collisions = 0
@@ -536,7 +538,7 @@ class Reward4Node(RewardNode):
         self.listening = False
         self.transmitting = False
         self.env = env
-        self.inPipe = []
+        self.inPipe = queue.Queue()
         self.outPipe = mesgPipe
         self.latency = 10_000_000_000
         self.collisions = 0
@@ -605,7 +607,7 @@ class Reward5Node(RewardNode):
         self.listening = False
         self.transmitting = False
         self.env = env
-        self.inPipe = []
+        self.inPipe = queue.Queue()
         self.outPipe = mesgPipe
         self.latency = 10_000_000_000
         self.collisions = 0
@@ -691,7 +693,7 @@ class RewardStaticNode(RewardNode):
         self.transmitting = False
         self.env = env
         self.inPipeCount = 0
-        self.inPipe = []
+        self.inPipe = queue.Queue()
         self.outPipe = mesgPipe
         self.latency = 10_000_000_000
         self.collisions = 0
