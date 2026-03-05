@@ -19,7 +19,7 @@ El objetivo es encontrar el DC óptimo para una N dada.
               for row in tsv_reader:
                   try:
                       lat = int(row[0])
-                      freq = int(row[1])
+                      freq = int(row[1]) - 100
 
                       term = lat * freq
 
@@ -43,7 +43,7 @@ El objetivo es encontrar el DC óptimo para una N dada.
           freq_col = df.iloc[:, 1]
 
           N = freq_col.sum()
-          mean = (val_col * freq_col).sum() / N
+          mean = (val_col * freq_col).sum() / N - 100
 
           var = ((val_col - mean)**2 * freq_col).sum() / (N - 1)
           sem = np.sqrt(var) / np.sqrt(N)
@@ -59,6 +59,10 @@ El objetivo es encontrar el DC óptimo para una N dada.
       return s
 
 #+END_SRC
+
+#+RESULTS: helper_function_block
+: None
+
 
 El modelo matemático propuesto es:
 
@@ -79,7 +83,7 @@ E[t]_{independent} = \frac{T^2 H_{n-1}}{2 DC^2 (L - 3\alpha) \left(1 - \frac{2\a
   DC = 5
   alpha = 0.125
   L = 1
-  for n in [2, 5, 10, 20, 50]:
+  for n in [2, 5, 10, 20, 40, 50]:
       numerator = T * harmonic(n-1)
       p_succ_1 = ((2 * DC**2 * (L - 3 * alpha)) / T)  *  (1 - (4 * DC * alpha)/T)**(n-2)
       p_succ_2 = (2 * DC**2 * (L - 3 * alpha) / T) * (1 - (2*alpha)/T)**(2*DC*(n-2))
@@ -94,12 +98,13 @@ E[t]_{independent} = \frac{T^2 H_{n-1}}{2 DC^2 (L - 3\alpha) \left(1 - \frac{2\a
 
 #+RESULTS:
 |  n | E[latency]_dependentfi | E[latency]_independent | E[latency]_exp |
-|----+------------------------+------------------------+----------------|
-|  2 |                    320 |                    320 |            367 |
-|  5 |                    719 |                    719 |            683 |
-| 10 |                   1109 |                   1106 |           1021 |
-| 20 |                   1791 |                   1781 |           1489 |
-| 50 |                   4832 |                   4766 |           3289 |
+|----+-----------------------+-----------------------+---------------|
+|  2 |                   320 |                   320 |           321 |
+|  5 |                   719 |                   719 |           728 |
+| 10 |                  1109 |                  1106 |          1000 |
+| 20 |                  1791 |                  1781 |          1721 |
+| 40 |                  3562 |                  3524 |          2938 |
+| 50 |                  4832 |                  4766 |          4046 |
 
 
 #+BEGIN_SRC python :noweb yes :results graphics file output :file plots/papu-graph.png
@@ -115,15 +120,15 @@ E[t]_{independent} = \frac{T^2 H_{n-1}}{2 DC^2 (L - 3\alpha) \left(1 - \frac{2\a
   alpha = 0.125
   L = 1
   # dcs = [1, 5, 10, 25, 50, 75, 90, 99]
-  dcs = [1, 5, 10, 25, 50, 75]
+  dcs = [1, 5, 10, 25, 50, 75, 90]
 
   datasets = {}
-  for n in [5, 10,20, 30, 40, 50]:
+  for n in [2, 5, 10, 20, 40, 50]:
       means = []
       valid_dcs = []
       for dc in dcs:
           val = getMean(n, dc, T, alpha)
-          if not math.isnan(val):
+          if not math.isnan(val) and val < 99_000:
               means.append(getMean(n, dc, T, alpha))
               valid_dcs.append(dc)
       datasets[f'{n} nodes'] = (np.array(means), np.array(valid_dcs))
@@ -133,6 +138,7 @@ E[t]_{independent} = \frac{T^2 H_{n-1}}{2 DC^2 (L - 3\alpha) \left(1 - \frac{2\a
       
       log_x = np.log10(data[1])
       log_y = np.log10(data[0])
+      print(label, data)
       
       log_x_smooth = np.linspace(log_x.min(), log_x.max(), 128)
       spline = make_interp_spline(log_x, log_y, k=3)
@@ -175,7 +181,7 @@ Esto está mal!
 
 Ahora, la creación de estas gráficas es automática y resistente a /datapoints/ faltantes :).
 
-#+BEGIN_SRC python :noweb yes :results graphics file output :file plots/papu-graph-ci.png
+#+BEGIN_SRC python :noweb yes :results graphics file output :file plots/papu-graph-ci.png :tangle papu.py
   <<helper_function_block>>
 
   import math
@@ -187,8 +193,8 @@ Ahora, la creación de estas gráficas es automática y resistente a /datapoints
   T = 100
   alpha = 0.125
   L = 1
-  dcs = [1, 5, 10, 25, 50, 75]
-  nodes = [10, 20, 40]
+  dcs = [1, 5, 10, 25, 50, 75, 90, 99]
+  nodes = [5, 10, 20, 40, 50]
 
   datasets = {}
   for n in nodes:
@@ -201,19 +207,20 @@ Ahora, la creación de estas gráficas es automática y resistente a /datapoints
           numerator = T * harmonic(n-1)
           p_succ_1 = ((2 * dc**2 * (L - 3 * alpha)) / T)  *  (1 - (4 * dc * alpha)/T)**(n-2)
           t =  numerator / p_succ_1
-          theos.append(t)
 
           mean, sem = getStats(n, dc, T, alpha)
-          if not math.isnan(mean):
+          if not math.isnan(mean) and mean < 90_000:
               means.append(mean)
-              confidence_interval = 1.96 * sem
+              # confidence_interval = 1.96 * sem
+              confidence_interval = 2.576 * sem
               cis.append(confidence_interval)
               valid_dcs.append(dc)
+              theos.append(t)
       datasets[f'{n} nodes'] = (np.array(valid_dcs), np.array(means), np.array(cis), np.array(theos))
 
   for label, data in datasets.items():
-      plt.loglog(data[0], data[1], 'o', alpha=0.25)
       # plt.fill_between(data[0], data[1] - data[2], data[1] + data[2], alpha=0.125)
+      print(label)
       
       log_x = np.log10(data[0])
       
@@ -235,8 +242,9 @@ Ahora, la creación de estas gráficas es automática y resistente a /datapoints
       min_x = 10**log_x_smooth[min_idx]
       min_y = 10**log_y_smooth[min_idx]
       
-      plt.plot(10**log_x_smooth, 10**log_y_smooth, label=f'{label}')
+      plt.loglog(data[0], data[1], 'o', alpha=0.5)
       color = plt.gca().lines[-1].get_color()
+      plt.plot(10**log_x_smooth, 10**log_y_smooth, label=f'{label}', color=color)
       plt.plot(10**log_x_smooth, 10**log_y_smooth_theo, '--', label=f'{label}-teo', color=color)
       plt.fill_between(10**log_x_smooth, 10**log_y_smooth - 10**log_y_smooth_sem, 10**log_y_smooth + 10**log_y_smooth_sem, alpha=0.25, color=color)
       
@@ -248,8 +256,9 @@ Ahora, la creación de estas gráficas es automática y resistente a /datapoints
   plt.yscale('log', base=10)
   plt.xscale('log', base=10)
   plt.ylabel(f'mean latency [time units]')
-  plt.legend()
-  # plt.grid(True)
+  plt.grid()
+  # plt.legend()
+  plt.legend(loc='lower left')
 
 #+END_SRC
 
