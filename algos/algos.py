@@ -3,6 +3,7 @@ import math
 import random
 import simpy
 import os
+import csv
 from typing import List
 from typing import TypedDict
 from operator import attrgetter
@@ -161,9 +162,9 @@ class SimEnvironment:
         #             if updates[0][0] >= 0:
         #                 DCAvg[i] += updates[0][1] / len(self._nodes)
 
-        #     finalDC_per_node = [(node.finalDC) for node in self._nodes]
+        finalDC_per_node = [(node.finalDC) for node in self._nodes]
 
-        # self._results["finalDC"] = sum(finalDC_per_node) / self._N
+        self._results["finalDC"] = sum(finalDC_per_node) / self._N
         # self._results["collisions"] = 100 * sum(collisions_per_node) / (self._N * (self._stopTime - self._startTime))
         # self._results["accumDiscoveries"] = accumDiscoveries
         # self._results["accumCollisions"] = accumColls
@@ -180,6 +181,7 @@ class Test:
         self.numTests = numTests
         self.latencyCDF = {}
         self.firstNodeLatencyDist = {}
+        self.finalDC = {}
         self.discoveryProportionResults = {}
         self.collisionResults = {}
         self.DCAvgResults = {}
@@ -229,6 +231,7 @@ class Test:
             # accumDiscoveries = [0] * self.maxTime
             collisions = 0
             finalDC = 0
+            algorithm
 
             with Pool(max(1, os.cpu_count()-1)) as p:
                 jobOutput = p.map(self.runSingleTest, [algorithm] * self.numTests)
@@ -236,7 +239,7 @@ class Test:
                     # latencyDist[el["latency"]] += 1
                     firstNodeLatencyDist[min(el["first-node-latency"], self.maxTime-1)] += 1
                     # collisions += el["collisions"] / self.numTests
-                    # finalDC += el["finalDC"] / self.numTests
+                    finalDC += el["finalDC"] / self.numTests
                     for i, v in enumerate(el["accumDiscoveries"]):
                         accumDiscoveries[i] += v
                     for i, v in enumerate(el["accumCollisions"]):
@@ -245,6 +248,7 @@ class Test:
                         DCAvg[i] += v / self.numTests
 
             # self.latencyCDF[algorithm["name"]] = getCDF(latencyDist, self.numTests)
+            self.finalDC[algorithm["name"]] = finalDC
             self.firstNodeLatencyDist[algorithm["name"]] = firstNodeLatencyDist
             # self.discoveryProportionResults[algorithm["name"]] = list(map(lambda x: x / (self.numTests * self.numNodes * (self.numNodes - 1)), accumDiscoveries))
             # self.collisionResults[algorithm["name"]] = accumCollisions
@@ -255,7 +259,13 @@ class Test:
             # print("FINALDC", algorithm["name"], finalDC)
 
         # self.writeResultToFile(f'./discovery-data/{self.name}-latency-cdf.tsv', self.latencyCDF, "time_to_finish", self.maxTime)
-        self.writeResultToFile(f'./discovery-data/{self.name}-first-node-latency.tsv', self.firstNodeLatencyDist, "first-node-latency", self.maxTime)
+        print(self.finalDC)
+        with open(f'./exp-data/{self.name}/{self.numNodes}-nodes-final-dc.tsv', 'w') as f:
+            headers = self.finalDC.keys()
+            writer = csv.DictWriter(f, fieldnames=headers, delimiter='\t')
+            writer.writeheader()
+            writer.writerow(self.finalDC)
+        self.writeResultToFile(f'./exp-data/{self.name}/{self.numNodes}-nodes-first-node-latency.tsv', self.firstNodeLatencyDist, "first-node-latency", self.maxTime)
         # self.writeResultToFile(f'./discovery-data/{self.name}-discoveryProportion-{self.numNodes}-nodes.tsv', self.discoveryProportionResults, "discovery_proportion", self.maxTime)
         # self.writeResultToFile(f'./discovery-data/{self.name}-collisions.tsv', self.collisionResults, "collisions", self.maxTime)
         # self.writeResultToFile(f'./discovery-data/{self.name}-DC-{self.numNodes}-nodes.tsv', self.DCAvgResults, "DC-avg", self.maxTime)
