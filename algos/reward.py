@@ -771,6 +771,8 @@ class LCGNode(RewardNode):
 
         yield self.env.timeout(msg["alpha"])
 
+        listeningAtTheEnd = self.listening
+
         # Remove this new element after listening time is over
         _ = self.inPipe.get()
 
@@ -778,7 +780,7 @@ class LCGNode(RewardNode):
         if not self.inPipe.empty():
             cleanEnd = False
 
-        if not listeningFromTheStart:
+        if not listeningFromTheStart or not listeningAtTheEnd:
             return
 
 
@@ -788,7 +790,8 @@ class LCGNode(RewardNode):
             self._discovered.add(msg["from"])
             self.neighborTable[msg['from']] = {
                 'current_x': msg['current_x'],
-                'last_time': msg['slot']
+                'last_time': msg['slot'],
+                'phase': self.env.now
             }
 
             if self.latency > 1_000_000_000_000 and self.hasDiscoveredAllNeighbors():
@@ -797,6 +800,9 @@ class LCGNode(RewardNode):
 
         elif cleanDiscovery:
             self.cleanDiscoveries += 1
+            self.neighborTable[sender]['phase'] = self.env.now  # ← keep phase fresh
+            self.neighborTable[sender]['current_x'] = msg['current_x']
+            self.neighborTable[sender]['last_time'] = msg['slot']
         elif not cleanDiscovery:
             self.collisions += 1
 
@@ -805,6 +811,7 @@ class LCGNode(RewardNode):
 
     def checkNeighborCollisions(self, slot_index):
         """Predicts if any neighbor is active at THIS specific slot."""
+        my_phase = self.env.now % 1
         for n_id in self.neighborTable.keys():
 
             neighbor = self.neighborTable[n_id]
@@ -816,7 +823,12 @@ class LCGNode(RewardNode):
             neighbor['current_x'] = projected_x
 
             if projected_x < self.threshold:
-                return True, n_id
+                # LCG says they want to activate — now check if phase overlaps
+                neighbor_phase = neighbor['phase'] % 1
+                delta = (neighbor_phase - my_phase) % 1
+                # Collision if either TX window overlaps
+                if delta < self.alpha or delta > 1 - self.alpha:
+                    return True, n_id
         return False, None
 
     def doTX(self):
@@ -852,6 +864,7 @@ class LCGNode(RewardNode):
                 # print(self.current_x, self.threshold)
                 collision, culprit = self.checkNeighborCollisions(self.slot)
                 if collision:
+                    print('coll')
                     # print('aaa')
                     if random.random() < 0.5:
                         # TODO: make the shift dependent on curren number of neighbors
@@ -863,7 +876,11 @@ class LCGNode(RewardNode):
                     self.env.process(self.activeSlotSequence())
                 # self.env.process(self.activeSlotSequence())
 
-            yield self.env.timeout(1)
+            # yield self.env.timeout(1)
+            # Add dither to defeat lockstep
+            yield self.env.timeout(1 + random.uniform(0, self.alpha / 2))
+
+
 
         # print('eeeeeeeeeeeeeeee', active / total)
         self._discoveredTimes.sort()
