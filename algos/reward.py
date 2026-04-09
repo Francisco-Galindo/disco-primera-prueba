@@ -193,8 +193,8 @@ class RewardNode(Node):
             self.collisions += 1
             # self._collisionTimes.append(math.ceil(self.env.now))
 
-    def hasdiscoveredallneighbors(self):
-        return self.numneighbors == len(self._discovered)
+    def hasDiscoveredAllNeighbors(self):
+        return self.numNeighbors == len(self._discovered)
 
     def doTX(self):
         now = self.env.now
