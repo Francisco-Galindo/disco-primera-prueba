@@ -40,7 +40,7 @@ class RewardNode(Node):
         self.inPipeCount = 0
         self.inPipe = queue.Queue()
         self.outPipe = mesgPipe
-        self.latency = 10_000_000_000
+        self.latency = 10_000_000_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
         self.numNeighbors = numNeighbors
@@ -132,7 +132,7 @@ class RewardNode(Node):
         self._alignmentOffset = 0
         self._slotOffset = 0
 
-        self.latency = 1_000_000_000
+        self.latency = 1_000_000_000_000_000
 
         if self.id != 0 and self.numNeighbors > 0:
             self._alignmentOffset = random.uniform(0, 1)
@@ -175,7 +175,7 @@ class RewardNode(Node):
             self._discovered.add(msg["from"])
             # self._discoveredTimes.append(math.ceil(now))
 
-            if self.latency > 1_000_000 and self.hasDiscoveredAllNeighbors():
+            if self.latency > 1_000_000_000 and self.hasDiscoveredAllNeighbors():
                 self.latency = math.ceil(self.env.now)
                 # if self.id == 0:
                 #     # print(f'latency\t{self.latency}, asdfasdf {self.slotOffset}')
@@ -273,9 +273,14 @@ class RewardNode(Node):
         #     self._activeSlots -= 1
         #     print("PAPEADO")
         #     return
+        # if self.id == 0:
+        #     print('TX', self.env.now)
         self.env.process(self.doTX())
         yield self.env.timeout(self.alpha)
-        self.env.process(self.doListen())
+        # if self.id == 0:
+        #     print('LISTENING', self.env.now)
+        # print('alpha', self.alpha, self._alpha)
+        self.env.process(self.doListen()) # Also does the second TX
 
     def doListen(self):
         # print(f"{self.env.now}: \t{self.id} starts NORMAL LISTENING")
@@ -288,7 +293,7 @@ class RewardNode(Node):
         # self.inPipe = []
         self.inPipeCount = 0
         self.listening = False
-        self.env.process(self.doTX())
+        yield self.env.process(self.doTX())
         # print(f"{self.env.now}: \t{self.id} stops LISTENING")
 
     def run(self, maxtime: int):
@@ -729,17 +734,16 @@ class LCGNode(RewardNode):
         self._collisionTimes: List[int] = []
         self._simStartTime = 0
 
-        self.m = 65536
+        self.mod = 65536
         self.a = 137  # Standard multiplier for power-of-2 modulus
         self.c = 187  # Must be odd
-        self.threshold = int(self.DC * self.m)
+        self.threshold = int(self._DC * self.mod)
         self.window_size = 100
         self.neighborTable = {}
         # self.neighborTable = {
         #     1: {'current_x': 1, 'last_time': 2},
         # }
-        self.current_x = (self.id * 31337) % self.m
-        self.next_x = self.current_x
+        self.current_x = (self.id * 31337) % self.mod
         self.slot = 0
 
         if not slotOffset:
@@ -751,24 +755,11 @@ class LCGNode(RewardNode):
     def doCycleStart(self):
         pass
 
-    def planPeriod(self):
-        """
-        Calculates the next 100 slots in advance.
-        """
-        my_active_slots = []
-
-        self.current_x = self.next_x
-        temp_x = self.current_x
-
-        for i in range(100):
-            temp_x = (self.a * temp_x + self.c) % self.m
-            if temp_x < self.threshold:
-                my_active_slots.append(i)
-
-        self.next_x = temp_x
-        return my_active_slots
-
     def receiveMessage(self, msg: Dict):
+        # if self.id == 0:
+            # print('Received: ', msg)
+            # print('Listening: ', self.listening)
+
         cleanStart = True
         if not self.inPipe.empty():
             cleanStart = False
@@ -790,6 +781,7 @@ class LCGNode(RewardNode):
         if not listeningFromTheStart:
             return
 
+
         cleanDiscovery = cleanEnd and cleanStart
         newDiscovery = cleanDiscovery and sender not in self.neighborTable
         if newDiscovery:
@@ -799,7 +791,7 @@ class LCGNode(RewardNode):
                 'last_time': msg['slot']
             }
 
-            if self.latency > 1_000_000 and self.hasDiscoveredAllNeighbors():
+            if self.latency > 1_000_000_000_000 and self.hasDiscoveredAllNeighbors():
                 self.latency = math.ceil(self.env.now)
                 self.finalDC = self._DC
 
@@ -808,8 +800,8 @@ class LCGNode(RewardNode):
         elif not cleanDiscovery:
             self.collisions += 1
 
-    def hasdiscoveredallneighbors(self):
-        return self.numneighbors == len(self.neighborTable)
+    def hasDiscoveredAllNeighbors(self):
+        return self.numNeighbors == len(self.neighborTable)
 
     def checkNeighborCollisions(self, slot_index):
         """Predicts if any neighbor is active at THIS specific slot."""
@@ -819,7 +811,7 @@ class LCGNode(RewardNode):
             projected_x = neighbor['current_x']
             last_time = neighbor['last_time']
             for _ in range(last_time+1, slot_index+1):
-                projected_x = (self.a * projected_x + self.c) % self.m
+                projected_x = (self.a * projected_x + self.c) % self.mod
             neighbor['last_time'] = slot_index
             neighbor['current_x'] = projected_x
 
@@ -844,23 +836,36 @@ class LCGNode(RewardNode):
     def run(self, maxtime: int):
         yield self.env.timeout(self._startingTime)
 
-        self.current_x = (self.id * 31337) % self.m
-        self.slot = math.ceil(self.env.now)
+        # self.current_x = (self.id * 31337) % self.mod
+        self.current_x = int(random.random() * (2**16)-2)
 
+        total = 0
+        active = 0
         while self.env.now < maxtime and not self._shouldStop:
-            self._current_x = (self.a * self.current_x + self.c) % self.m
-            if self.current_x < self.threshold:
+            self.current_x = (self.a * self.current_x + self.c) % self.mod
+            self.slot = math.ceil(self.env.now)
+            total += 1
+            # if self.id != 0:
+            #     print('time', self.env.now)
+            if self.current_x <= self.threshold:
+                active += 1
+                # print(self.current_x, self.threshold)
                 collision, culprit = self.checkNeighborCollisions(self.slot)
                 if collision:
+                    # print('aaa')
                     if random.random() < 0.5:
-                        shift = (self.id % 5) + 1
+                        # TODO: make the shift dependent on curren number of neighbors
+                        shift = (self.id % self.numNeighbors) + 1
                         start_delayed(self.env, self.activeSlotSequence(), shift)
-                else:
+                elif not self.listening and not self.transmitting:
+                    # self.listening = False
+                    # self.transmitting = True
                     self.env.process(self.activeSlotSequence())
+                # self.env.process(self.activeSlotSequence())
 
-            self.env.timeout(1)
+            yield self.env.timeout(1)
 
-
+        # print('eeeeeeeeeeeeeeee', active / total)
         self._discoveredTimes.sort()
         self._collisionTimes.sort()
         self.DCUpdates.sort()

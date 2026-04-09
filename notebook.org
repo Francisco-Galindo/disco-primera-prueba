@@ -37,7 +37,7 @@ El objetivo es encontrar el DC óptimo para una N dada.
   def getStats(path):
       mean = 0
       try:
-          df = pd.read_csv(path)
+          df = pd.read_csv(path, sep='\t')
 
           val_col = df.iloc[:, 0]
           freq_col = df.iloc[:, 1]
@@ -48,13 +48,14 @@ El objetivo es encontrar el DC óptimo para una N dada.
           var = ((val_col - mean)**2 * freq_col).sum() / (N - 1)
           sem = np.sqrt(var) / np.sqrt(N)
           return mean, sem
-      except:
+      except Exception as e:
+          print("error", e)
           return float('nan'), float('nan')
 
   def getRewardStaticStats(n, DC, T, alpha):
       path = f'./discovery-data/{n}-nodes-{round(DC/ 100, 2)}-dc-{T}-T-{alpha}-alpha-first-node-latency.tsv'
       return getStats(path)
-  
+
   def getAlgoStats(algoname, n, DC, alpha):
       path = f'./{algoname}-data/{n}-nodes-first-node-latency.tsv'
       return getStats(path)
@@ -67,9 +68,6 @@ El objetivo es encontrar el DC óptimo para una N dada.
       return s
 
 #+END_SRC
-
-#+RESULTS: helper_function_block
-: None
 
 
 El modelo matemático propuesto es:
@@ -97,7 +95,7 @@ E[t]_{independent} = \frac{T^2 H_{n-1}}{2 DC^2 (L - 3\alpha) \left(1 - \frac{2\a
       p_succ_2 = (2 * DC**2 * (L - 3 * alpha) / T) * (1 - (2*alpha)/T)**(2*DC*(n-2))
       val_inf =  numerator / p_succ_1
       val_sup =  numerator / p_succ_2
-      mean, sem = getStats(n, DC, T, alpha)
+      mean, sem = getRewardStaticStats(n, DC, T, alpha)
       row = [n, round(val_inf), round(val_sup), round(mean)]
       data.append(row)
 
@@ -107,13 +105,13 @@ E[t]_{independent} = \frac{T^2 H_{n-1}}{2 DC^2 (L - 3\alpha) \left(1 - \frac{2\a
 
 #+RESULTS:
 |  n | E[latency]_dependentfi | E[latency]_independent | E[latency]_exp |
-|----+------------------------+------------------------+----------------|
-|  2 |                    320 |                    320 |            264 |
-|  5 |                    719 |                    719 |            601 |
-| 10 |                   1109 |                   1106 |            917 |
-| 20 |                   1791 |                   1781 |           1621 |
-| 40 |                   3562 |                   3524 |           2838 |
-| 50 |                   4832 |                   4766 |           3946 |
+|----+-----------------------+-----------------------+---------------|
+|  2 |                   320 |                   320 |           264 |
+|  5 |                   719 |                   719 |           601 |
+| 10 |                  1109 |                  1106 |           917 |
+| 20 |                  1791 |                  1781 |          1621 |
+| 40 |                  3562 |                  3524 |          2838 |
+| 50 |                  4832 |                  4766 |          3946 |
 
 
 #+BEGIN_SRC python :noweb yes :results graphics file output :file plots/papu-graph.png
@@ -136,9 +134,9 @@ E[t]_{independent} = \frac{T^2 H_{n-1}}{2 DC^2 (L - 3\alpha) \left(1 - \frac{2\a
       means = []
       valid_dcs = []
       for dc in dcs:
-          val, _ = getStats(n, dc, T, alpha)
+          val, _ = getRewardStaticStats(n, dc, T, alpha)
           if not math.isnan(val) and val < 99_000:
-              mean, sem = getStats(n, dc, T, alpha)
+              mean, sem = getRewardStaticStats(n, dc, T, alpha)
               means.append(mean)
               valid_dcs.append(dc)
       datasets[f'{n} nodes'] = (np.array(means), np.array(valid_dcs))
@@ -217,7 +215,7 @@ Ahora, la creación de estas gráficas es automática y resistente a /datapoints
           p_succ_1 = ((2 * dc**2 * (L - 3 * alpha)) / T)  *  (1 - (4 * dc * alpha)/T)**(n-2)
           t =  numerator / p_succ_1
 
-          mean, sem = getStats(n, dc, T, alpha)
+          mean, sem = getRewardStaticStats(n, dc, T, alpha)
           if not math.isnan(mean) and mean < 90_000:
               # means.append(mean)
               means.append(max(mean, 0.1))

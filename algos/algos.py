@@ -40,6 +40,7 @@ class SimEnvironment:
             "latency": 0,
             "finalDC": 0,
             "collisions": 0,
+            "latencies": defaultdict(int),
             "unilateraldiscoveries": [],
             "accumDiscoveries": [],
             "accumCollisions": [],
@@ -111,7 +112,7 @@ class SimEnvironment:
         self._stopTime = maxTime
         self._env.run(until=maxTime+self._startTime)
 
-        # latencies = [(node.latency - self._startTime) for node in self._nodes]
+        latencies = [(node.latency - self._startTime) for node in self._nodes]
         # latency = math.ceil(min(max(latencies), maxTime-1))
         # MEMORY OPTIMIZATION:
         # Use a generator expression inside max() to avoid creating a new list.
@@ -171,6 +172,8 @@ class SimEnvironment:
         # self._results["DCAvg"] = DCAvg
         self._results["latency"] = latency
         self._results["first-node-latency"] = firstNode.latency
+        for latency in latencies:
+            self._results["latencies"][latency] += 1
         # print('a')
 
         return self._results
@@ -181,6 +184,7 @@ class Test:
         self.numTests = numTests
         self.latencyCDF = {}
         self.firstNodeLatencyDist = {}
+        self.latencyDist = {}
         self.finalDC = {}
         self.discoveryProportionResults = {}
         self.collisionResults = {}
@@ -228,6 +232,7 @@ class Test:
         for algorithm in self.algorithms:
             # latencyDist = [0] * self.maxTime
             firstNodeLatencyDist = defaultdict(int)
+            latencyDist = defaultdict(int)
             # accumDiscoveries = [0] * self.maxTime
             collisions = 0
             finalDC = 0
@@ -238,6 +243,8 @@ class Test:
                 for el in jobOutput:
                     # latencyDist[el["latency"]] += 1
                     firstNodeLatencyDist[min(el["first-node-latency"], self.maxTime-1)] += 1
+                    for slot, freq in el["latencies"].items():
+                        latencyDist[slot] += freq
                     # collisions += el["collisions"] / self.numTests
                     finalDC += el["finalDC"] / self.numTests
                     for i, v in enumerate(el["accumDiscoveries"]):
@@ -250,6 +257,7 @@ class Test:
             # self.latencyCDF[algorithm["name"]] = getCDF(latencyDist, self.numTests)
             self.finalDC[algorithm["name"]] = finalDC
             self.firstNodeLatencyDist[algorithm["name"]] = firstNodeLatencyDist
+            self.latencyDist[algorithm["name"]] = latencyDist
             # self.discoveryProportionResults[algorithm["name"]] = list(map(lambda x: x / (self.numTests * self.numNodes * (self.numNodes - 1)), accumDiscoveries))
             # self.collisionResults[algorithm["name"]] = accumCollisions
             # if "Reward" in algorithm["name"]:
@@ -260,12 +268,14 @@ class Test:
 
         # self.writeResultToFile(f'./discovery-data/{self.name}-latency-cdf.tsv', self.latencyCDF, "time_to_finish", self.maxTime)
         print(self.finalDC)
+        os.makedirs(f"./exp-data/{self.name}", exist_ok=True)
         with open(f'./exp-data/{self.name}/{self.numNodes}-nodes-final-dc.tsv', 'w') as f:
             headers = self.finalDC.keys()
             writer = csv.DictWriter(f, fieldnames=headers, delimiter='\t')
             writer.writeheader()
             writer.writerow(self.finalDC)
         self.writeResultToFile(f'./exp-data/{self.name}/{self.numNodes}-nodes-first-node-latency.tsv', self.firstNodeLatencyDist, "first-node-latency", self.maxTime)
+        self.writeResultToFile(f'./exp-data/{self.name}/{self.numNodes}-nodes-latencies.tsv', self.latencyDist, "latency", self.maxTime)
         # self.writeResultToFile(f'./discovery-data/{self.name}-discoveryProportion-{self.numNodes}-nodes.tsv', self.discoveryProportionResults, "discovery_proportion", self.maxTime)
         # self.writeResultToFile(f'./discovery-data/{self.name}-collisions.tsv', self.collisionResults, "collisions", self.maxTime)
         # self.writeResultToFile(f'./discovery-data/{self.name}-DC-{self.numNodes}-nodes.tsv', self.DCAvgResults, "DC-avg", self.maxTime)
