@@ -9,31 +9,6 @@ El objetivo es encontrar el DC óptimo para una N dada.
   import pandas as pd
   import numpy as np
 
-  # def getMean(n, DC, T, alpha):
-  #     mean = 0
-  #     try:
-  #         with open(f'./discovery-data/{n}-nodes-{round(DC/ 100, 2)}-dc-{T}-T-{alpha}-alpha-first-node-latency.tsv', 'r') as file:
-  #             tsv_reader = csv.reader(file, delimiter='\t')
-  #             ac = 0
-  #             population = 0
-  #             for row in tsv_reader:
-  #                 try:
-  #                     lat = int(row[0])
-  #                     freq = int(row[1]) - 100
-
-  #                     term = lat * freq
-
-  #                     population += freq
-  #                     ac += term
-  #                 except:
-  #                     continue
-
-  #             mean = ac / population
-
-  #         return mean
-  #     except:
-  #         return float('nan')
-
   def getStats(path):
       mean = 0
       try:
@@ -43,7 +18,7 @@ El objetivo es encontrar el DC óptimo para una N dada.
           freq_col = df.iloc[:, 1]
 
           N = freq_col.sum()
-          mean = (val_col * freq_col).sum() / N - 100
+          mean = (val_col * freq_col).sum() / N
 
           var = ((val_col - mean)**2 * freq_col).sum() / (N - 1)
           sem = np.sqrt(var) / np.sqrt(N)
@@ -54,10 +29,26 @@ El objetivo es encontrar el DC óptimo para una N dada.
 
   def getRewardStaticStats(n, DC, T, alpha):
       path = f'./discovery-data/{n}-nodes-{round(DC/ 100, 2)}-dc-{T}-T-{alpha}-alpha-first-node-latency.tsv'
-      return getStats(path)
+      mean, sem = getStats(path)
+      return mean-100, sem
 
-  def getAlgoStats(algoname, n, DC, alpha):
-      path = f'./{algoname}-data/{n}-nodes-first-node-latency.tsv'
+  def getRewardStaticStats(n, DC, T, alpha):
+      path = f'./exp-data/reward-static-{round(DC/ 100, 2)}-dc-{alpha}-alpha-{T}-t/{n}-nodes-first-node-latency.tsv'
+      path = f'./exp-data/reward-static-{round(DC/ 100, 2)}-dc-{alpha}-alpha-{T}-t/{n}-nodes-latencies.tsv'
+      mean, sem = getStats(path)
+      # return mean-100, sem
+      return mean, sem
+
+  def getPseudorandomStats(n, DC, alpha):
+      path = f'./exp-data/LCG-{round(DC/ 100, 2)}-dc-{alpha}-alpha/{n}-nodes-first-node-latency.tsv'
+      path = f'./exp-data/LCG-{round(DC/ 100, 2)}-dc-{alpha}-alpha/{n}-nodes-latencies.tsv'
+      mean, sem = getStats(path)
+      # return mean-100, sem
+      return mean, sem
+
+  def getPseudorandom2Stats(n, DC, alpha):
+      path = f'./exp-data/LCG2-{round(DC/ 100, 2)}-dc-{alpha}-alpha/{n}-nodes-first-node-latency.tsv'
+      path = f'./exp-data/LCG2-{round(DC/ 100, 2)}-dc-{alpha}-alpha/{n}-nodes-latencies.tsv'
       return getStats(path)
 
   def harmonic(n):
@@ -66,6 +57,14 @@ El objetivo es encontrar el DC óptimo para una N dada.
           s += 1 / i
 
       return s
+
+  def is_valid(mean, sem):
+      return (
+          mean is not None and sem is not None
+          and not math.isnan(mean) and not math.isnan(sem)
+          and mean < 90_000
+      )
+
 
 #+END_SRC
 
@@ -305,3 +304,100 @@ Ahora, la creación de estas gráficas es automática y resistente a /datapoints
 |----+----------------+-----------------------------|
 |  5 |           80.0 |                       41.12 |
 | 10 |           40.0 |                       87.56 |
+
+
+** Pseudorandom
+
+#+BEGIN_SRC python :noweb yes :results graphics file output :file plots/papu-graph-ci-2.png :tangle papu2.py
+  <<helper_function_block>>
+
+  import math
+  import numpy as np
+  import matplotlib
+  import matplotlib.pyplot as plt
+  from scipy.interpolate import make_interp_spline
+
+  T = 100
+  alpha = 2**-5
+  L = 1
+  dcs = [1, 5, 10, 25, 50, 75, 90, 99]
+  nodes = [20, 40, 50]
+
+  # Each stream: (name, getter(n, dc) -> (mean, sem), linestyle)
+  # Add a new entry here to graph another data source.
+  streams = [
+      ('static', lambda n, dc: getRewardStaticStats(n, dc, T, alpha), '-'),
+      ('pseudo2', lambda n, dc: getPseudorandom2Stats(n, dc, alpha), '--'),
+      # ('pseudo', lambda n, dc: getPseudorandomStats(n, dc, alpha),    '.'),
+  ]
+
+  datasets = {}
+  for n in nodes:
+      per_stream = {name: {'dcs': [], 'means': [], 'cis': []} for name, _, _ in streams}
+      for dc in dcs:
+          for name, getter, _ in streams:
+              try:
+                  mean, sem = getter(n, dc)
+              except Exception:
+                  continue
+              if is_valid(mean, sem):
+                  per_stream[name]['dcs'].append(dc)
+                  per_stream[name]['means'].append(max(mean, 0.1))
+                  per_stream[name]['cis'].append(1.96 * sem)
+                  # confidence_interval = 2.576 * sem
+      datasets[f'{n} nodes'] = per_stream
+
+
+  for label, per_stream in datasets.items():
+      color = None  # shared across streams of the same node count
+      for name, _, linestyle in streams:
+          d = per_stream[name]
+          if len(d['dcs']) < 2:
+              continue  # not enough points to interpolate
+
+          x = np.array(d['dcs'])
+          y = np.array(d['means'])
+          ci = np.array(d['cis'])
+
+          # Interpolate in linear x, log y space (y axis stays log-scaled).
+          log_y = np.log10(y)
+          log_y_sem = np.log10(ci)
+
+          x_smooth = np.linspace(x.min(), x.max(), 128)
+          k = min(3, len(x) - 1)  # fall back to lower-order spline if few points
+          spline = make_interp_spline(x, log_y, k=k)
+          spline_sem = make_interp_spline(x, log_y_sem, k=k)
+
+          y_smooth = 10 ** spline(x_smooth)
+          y_smooth_sem = 10 ** spline_sem(x_smooth)
+
+          min_idx = np.argmin(y_smooth)
+          min_x = x_smooth[min_idx]
+          min_y = y_smooth[min_idx]
+
+          # First stream for a given node count sets the color; rest reuse it.
+          if color is None:
+              plt.plot(x, y, 'o', alpha=0.5)
+              color = plt.gca().lines[-1].get_color()
+          else:
+              plt.plot(x, y, 'o', alpha=0.5, color=color)
+
+          plt.plot(x_smooth, y_smooth, linestyle,
+                   label=f'{label}-{name}', color=color)
+          plt.fill_between(x_smooth,
+                           y_smooth - y_smooth_sem,
+                           y_smooth + y_smooth_sem,
+                           alpha=0.25, color=color)
+          plt.plot(min_x, min_y, 'r*')
+
+
+  plt.title('Latencias en función de DC')
+  plt.xlabel('DC [%]')
+  plt.yscale('log', base=10)
+  plt.ylabel('mean latency [time units]')
+  plt.grid()
+  plt.legend(loc='lower left')
+#+END_SRC
+
+#+RESULTS:
+[[file:plots/papu-graph-ci-2.png]]
