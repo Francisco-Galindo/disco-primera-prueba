@@ -811,6 +811,7 @@ class LCGNode(RewardNode):
 
     def checkNeighborCollisions(self, slot_index):
         """Predicts if any neighbor is active at THIS specific slot."""
+        highest_culprit = -1
         my_phase = self.env.now % 1
         for n_id in self.neighborTable.keys():
 
@@ -828,7 +829,9 @@ class LCGNode(RewardNode):
                 delta = (neighbor_phase - my_phase) % 1
                 # Collision if either TX window overlaps
                 if delta < self.alpha or delta > 1 - self.alpha:
-                    return True, n_id
+                    highest_culprit = max(highest_culprit, n_id)
+        if highest_culprit != -1:
+            return True, highest_culprit
         return False, None
 
     def doTX(self):
@@ -845,10 +848,18 @@ class LCGNode(RewardNode):
         yield self.env.timeout(self._alpha)
         self.transmitting = False
 
+    def activeSlotSequence(self):
+        if not self.listening and not self.transmitting:
+            self.env.process(self.doTX())
+            yield self.env.timeout(self.alpha)
+            self.env.process(self.doListen()) # Also does the second TX
+        else:
+            yield self.env.timeout(self.alpha)
+
     def run(self, maxtime: int):
+
         yield self.env.timeout(self._startingTime)
 
-        # self.current_x = (self.id * 31337) % self.mod
         self.current_x = int(random.random() * (2**16)-2)
 
         total = 0
@@ -861,28 +872,124 @@ class LCGNode(RewardNode):
             #     print('time', self.env.now)
             if self.current_x <= self.threshold:
                 active += 1
-                # print(self.current_x, self.threshold)
                 collision, culprit = self.checkNeighborCollisions(self.slot)
                 if collision:
-                    print('coll')
-                    # print('aaa')
                     if random.random() < 0.5:
-                        # TODO: make the shift dependent on curren number of neighbors
                         shift = (self.id % self.numNeighbors) + 1
                         start_delayed(self.env, self.activeSlotSequence(), shift)
-                elif not self.listening and not self.transmitting:
-                    # self.listening = False
-                    # self.transmitting = True
+                else:
                     self.env.process(self.activeSlotSequence())
                 # self.env.process(self.activeSlotSequence())
 
-            # yield self.env.timeout(1)
             # Add dither to defeat lockstep
             yield self.env.timeout(1 + random.uniform(0, self.alpha / 2))
 
 
 
-        # print('eeeeeeeeeeeeeeee', active / total)
+        self._discoveredTimes.sort()
+        self._collisionTimes.sort()
+        self.DCUpdates.sort()
+
+
+class LCGNode2Factory(NodeFactory):
+    def __init__(self, startDC=0.05, alpha=0.125) -> None:
+        self.startDC = startDC
+        self.alpha = alpha
+
+    def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
+        return LCGNode2(env, mesgPipe, slotOffset, self.startDC, alignmentOffset, self.alpha, id, numNeighbors)
+
+    @property
+    def nodeTypeName(self) -> str:
+        return f"Reward static @{self.startDC}"
+
+
+class LCGNode2(LCGNode):
+    def __init__(self, env, mesgPipe: simpy.Store, slotOffset=0, dutycycle=0.05, alignmentOffset=0, alpha=0.0546875, id=0, numNeighbors=0) -> None:
+        self.id = id
+        self._alpha = alpha
+        self._m = math.ceil(2 / dutycycle)
+        self._n = math.ceil(alpha / dutycycle)
+        self.listening = False
+        self.transmitting = False
+        self.env = env
+        self.inPipeCount = 0
+        self.inPipe = queue.Queue()
+        self.outPipe = mesgPipe
+        self.latency = 10_000_000_000
+        self.collisions = 0
+        self.cleanDiscoveries = 0
+        self.numNeighbors = numNeighbors
+        self.lastListenSartTime = 0
+        self.DCUpdates = []
+        self.finalDC = 0
+
+        self._turnedOn = False
+        self._slotOffset = slotOffset
+        self._alignmentOffset = alignmentOffset
+        self._cycleJustStarted = False
+        self._startingTime = 0
+        self._receivingMessage = False
+        self._shouldStop = False
+
+        self.setDutyCycle(dutycycle)
+
+        self._DC = dutycycle
+        self._activeSlots = 0
+
+        self._newDiscoveriesMem = []
+        self._collisionMem = []
+        self._cleanDiscoveryMem = []
+        self._totalDiscoveries = []
+
+        self._discovered: Set[int] = set()
+        self._discoveredTimes: List[int] = []
+        self._collisionTimes: List[int] = []
+        self._simStartTime = 0
+
+        self.mod = 65536
+        self.a = 137  # Standard multiplier for power-of-2 modulus
+        self.c = 187  # Must be odd
+        self.threshold = int(self._DC * self.mod)
+        self.window_size = 100
+        self.neighborTable = {}
+        self.current_x = (self.id * 31337) % self.mod
+        self.slot = 0
+
+        if not slotOffset:
+            self.restart()
+
+    def run(self, maxtime: int):
+        yield self.env.timeout(self._startingTime)
+
+        self.current_x = int(random.random() * (2**16)-2)
+
+        total = 0
+        active = 0
+        while self.env.now < maxtime and not self._shouldStop:
+            self.current_x = (self.a * self.current_x + self.c) % self.mod
+            self.slot = math.ceil(self.env.now)
+            total += 1
+            # if self.id != 0:
+            #     print('time', self.env.now)
+            if self.current_x <= self.threshold:
+                active += 1
+                collision, culprit = self.checkNeighborCollisions(self.slot)
+
+                if not collision or (collision and self.id > culprit):
+                    self.env.process(self.activeSlotSequence())
+                else:
+                    if random.random() < 0.5:
+                        shift = (self.id % self.numNeighbors) + 1
+                        start_delayed(self.env, self.activeSlotSequence(), shift)
+                    else:
+                        self.env.process(self.activeSlotSequence())
+
+            # Add dither to defeat lockstep
+            yield self.env.timeout(1 + random.uniform(0, self.alpha / 2))
+
+
+
         self._discoveredTimes.sort()
         self._collisionTimes.sort()
         self.DCUpdates.sort()

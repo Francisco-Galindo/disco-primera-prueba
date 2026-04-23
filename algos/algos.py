@@ -92,6 +92,7 @@ class SimEnvironment:
 
     def run(self, maxTime):
 
+
         # print('hola2')
         firstNode = min(self._nodes, key=attrgetter('slotOffset'))
         lastNode = max(self._nodes, key=attrgetter('slotOffset'))
@@ -108,6 +109,7 @@ class SimEnvironment:
         self._env.process(self.routeMessages())
         for node in self._nodes:
             self._env.process(node.run(maxTime+self._startTime))
+
 
         self._stopTime = maxTime
         self._env.run(until=maxTime+self._startTime)
@@ -171,7 +173,7 @@ class SimEnvironment:
         # self._results["accumCollisions"] = accumColls
         # self._results["DCAvg"] = DCAvg
         self._results["latency"] = latency
-        self._results["first-node-latency"] = firstNode.latency
+        self._results["first-node-latency"] = firstNode.latency - self._startTime
         for latency in latencies:
             self._results["latencies"][latency] += 1
         # print('a')
@@ -240,6 +242,7 @@ class Test:
 
             with Pool(max(1, os.cpu_count()-1)) as p:
                 jobOutput = p.map(self.runSingleTest, [algorithm] * self.numTests)
+                print('hooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo')
                 for el in jobOutput:
                     # latencyDist[el["latency"]] += 1
                     firstNodeLatencyDist[min(el["first-node-latency"], self.maxTime-1)] += 1
