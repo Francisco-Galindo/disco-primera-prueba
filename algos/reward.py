@@ -1008,7 +1008,7 @@ class LCGNode3Factory(NodeFactory):
         return f"Reward static @{self.startDC}"
 
 
-class LCGNode2(LCGNode):
+class LCGNode3(LCGNode):
     def __init__(self, env, mesgPipe: simpy.Store, slotOffset=0, dutycycle=0.05, alignmentOffset=0, alpha=0.0546875, id=0, numNeighbors=0) -> None:
         self.id = id
         self._alpha = alpha
