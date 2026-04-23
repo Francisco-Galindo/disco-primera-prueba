@@ -34,7 +34,7 @@ test = Test([
         "nodeType": LCGNode3Factory(startDC=dc, alpha=alpha)
     },
 
-], name=f"LCG2-{dc}-dc-{alpha}-alpha", numTests=trials, maxTime=maxTime, numNodes=numNodes)
+], name=f"LCG3-{dc}-dc-{alpha}-alpha", numTests=trials, maxTime=maxTime, numNodes=numNodes)
 
 
 results = test.run()
