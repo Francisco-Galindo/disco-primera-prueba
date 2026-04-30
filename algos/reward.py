@@ -752,6 +752,8 @@ class LCGNode(RewardNode):
         self._collisionTimes: List[int] = []
         self._simStartTime = 0
 
+        self.active = 0
+
         self.mod = 65536
         self.a = 137  # Standard multiplier for power-of-2 modulus
         self.c = 187  # Must be odd
@@ -869,6 +871,7 @@ class LCGNode(RewardNode):
 
     def activeSlotSequence(self):
         if not self.listening and not self.transmitting:
+            self.active += 1
             self.env.process(self.doTX())
             yield self.env.timeout(self.alpha)
             self.env.process(self.doListen()) # Also does the second TX
@@ -893,11 +896,9 @@ class LCGNode(RewardNode):
                 collision, culprit = self.checkNeighborCollisions(self.slot)
                 if collision:
                     if random.random() < 0.5:
-                        active += 1
                         shift = (self.id % self.numNeighbors) + 1
                         start_delayed(self.env, self.activeSlotSequence(), shift)
                 else:
-                    active += 1
                     self.env.process(self.activeSlotSequence())
                 # self.env.process(self.activeSlotSequence())
 
@@ -905,7 +906,7 @@ class LCGNode(RewardNode):
             yield self.env.timeout(1 + random.uniform(0, self.alpha / 2))
 
 
-
+        self.finalDC = self.active / total
         self._discoveredTimes.sort()
         self._collisionTimes.sort()
         self.DCUpdates.sort()
@@ -968,6 +969,8 @@ class LCGNode2(LCGNode):
         self._collisionTimes: List[int] = []
         self._simStartTime = 0
 
+        self.active = 0
+
         self.mod = 65536
         self.a = 137  # Standard multiplier for power-of-2 modulus
         self.c = 187  # Must be odd
@@ -997,15 +1000,12 @@ class LCGNode2(LCGNode):
                 collision, culprit = self.checkNeighborCollisions(self.slot)
 
                 if not collision or (collision and self.id > culprit):
-                    active += 1
                     self.env.process(self.activeSlotSequence())
                 else:
                     if random.random() < 0.5:
-                        active += 1
                         shift = (self.id % self.numNeighbors) + 1
                         start_delayed(self.env, self.activeSlotSequence(), shift)
                     else:
-                        active += 1
                         self.env.process(self.activeSlotSequence())
 
             # Add dither to defeat lockstep
@@ -1013,6 +1013,7 @@ class LCGNode2(LCGNode):
 
 
 
+        self.finalDC = self.active / total
         self._discoveredTimes.sort()
         self._collisionTimes.sort()
         self.DCUpdates.sort()
@@ -1075,6 +1076,8 @@ class LCGNode3(LCGNode):
         self._collisionTimes: List[int] = []
         self._simStartTime = 0
 
+        self.active = 0
+
         self.mod = 65536
         self.a = 137  # Standard multiplier for power-of-2 modulus
         self.c = 187  # Must be odd
@@ -1104,10 +1107,8 @@ class LCGNode3(LCGNode):
                 collision, culprit = self.checkNeighborCollisions(self.slot)
 
                 if not collision or (collision and self.id > culprit):
-                    active += 1
                     self.env.process(self.activeSlotSequence())
                 else:
-                    active += 1
                     shift = (self.id % self.numNeighbors) + 1
                     start_delayed(self.env, self.activeSlotSequence(), shift)
 
@@ -1115,7 +1116,7 @@ class LCGNode3(LCGNode):
             yield self.env.timeout(1 + random.uniform(0, self.alpha / 2))
 
 
-
+        self.finalDC = self.active / total
         self._discoveredTimes.sort()
         self._collisionTimes.sort()
         self.DCUpdates.sort()
@@ -1178,6 +1179,8 @@ class LCGNode4(LCGNode):
         self._collisionTimes: List[int] = []
         self._simStartTime = 0
 
+        self.active = 0
+
         self.mod = 65536
         self.a = 137  # Standard multiplier for power-of-2 modulus
         self.c = 187  # Must be odd
@@ -1206,20 +1209,17 @@ class LCGNode4(LCGNode):
                 collision, culprit = self.checkNeighborCollisions(self.slot)
                 if collision:
                     if random.random() < 0.5:
-                        active += 1
                         shift = (self.id % self.numNeighbors) + 1
                         start_delayed(self.env, self.activeSlotSequence(), shift)
                     else:
-                        active += 1
                         self.env.process(self.activeSlotSequence())
                 else:
-                    active += 1
                     self.env.process(self.activeSlotSequence())
 
             # Add dither to defeat lockstep
             yield self.env.timeout(1 + random.uniform(0, self.alpha / 2))
 
-        self.finalDC = active / total
+        self.finalDC = self.active / total
         self._discoveredTimes.sort()
         self._collisionTimes.sort()
         self.DCUpdates.sort()
@@ -1282,6 +1282,8 @@ class LCGNode5(LCGNode):
         self._collisionTimes: List[int] = []
         self._simStartTime = 0
 
+        self.active = 0
+
         self.mod = 65536
         self.a = 137  # Standard multiplier for power-of-2 modulus
         self.c = 187  # Must be odd
@@ -1313,16 +1315,14 @@ class LCGNode5(LCGNode):
                     collision, culprit = self.checkNeighborCollisions(self.slot)
                     if not collision:
 
-                        active += 1
                         start_delayed(self.env, self.activeSlotSequence(), shift)
                 else:
-                    active += 1
                     self.env.process(self.activeSlotSequence())
 
             # Add dither to defeat lockstep
             yield self.env.timeout(1 + random.uniform(0, self.alpha / 2))
 
-        self.finalDC = active / total
+        self.finalDC = self.active / total
         self._discoveredTimes.sort()
         self._collisionTimes.sort()
         self.DCUpdates.sort()
