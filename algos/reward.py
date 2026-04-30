@@ -43,6 +43,7 @@ class RewardNode(Node):
         self.latency = 10_000_000_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
         self.DCUpdates = []
@@ -187,6 +188,7 @@ class RewardNode(Node):
                 # print("DC", self._activeSlots / self.latency)
 
         elif cleanDiscovery:
+            # print("clean", self.env.now)
             self.cleanDiscoveries += 1
         elif not cleanDiscovery:
             # print("collision", self.env.now)
@@ -275,6 +277,7 @@ class RewardNode(Node):
         #     return
         # if self.id == 0:
         #     print('TX', self.env.now)
+
         self.env.process(self.doTX())
         yield self.env.timeout(self.alpha)
         # if self.id == 0:
@@ -284,6 +287,11 @@ class RewardNode(Node):
 
     def doListen(self):
         # print(f"{self.env.now}: \t{self.id} starts NORMAL LISTENING")
+
+        old_collisions = self.collisions
+        old_cleanDiscoveries = self.cleanDiscoveries
+        old_neighbors = len(self._discovered)
+
         self._cycleJustStarted = False
         self.lastListenSartTime = self.env.now
         # self.inPipeCount = 0
@@ -293,6 +301,10 @@ class RewardNode(Node):
         # self.inPipe = []
         self.inPipeCount = 0
         self.listening = False
+
+        if self.collisions == old_collisions and self.cleanDiscoveries == old_cleanDiscoveries and len(self._discovered) == old_neighbors:
+            self.emptySlots += 1
+
         yield self.env.process(self.doTX())
         # print(f"{self.env.now}: \t{self.id} stops LISTENING")
 
@@ -336,6 +348,7 @@ class Reward2Node(RewardNode):
         self.latency = 10_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
         self.DCUpdates = []
@@ -419,6 +432,7 @@ class Reward3Node(RewardNode):
         self.latency = 10_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
         self.DCUpdates = []
@@ -488,6 +502,7 @@ class Reward4Node(RewardNode):
         self.latency = 10_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
         self.DCUpdates = []
@@ -557,6 +572,7 @@ class Reward5Node(RewardNode):
         self.latency = 10_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
         self.DCUpdates = []
@@ -643,6 +659,7 @@ class RewardStaticNode(RewardNode):
         self.latency = 10_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
         self.DCUpdates = []
@@ -706,6 +723,7 @@ class LCGNode(RewardNode):
         self.latency = 10_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
         self.DCUpdates = []
@@ -800,10 +818,11 @@ class LCGNode(RewardNode):
 
         elif cleanDiscovery:
             self.cleanDiscoveries += 1
-            self.neighborTable[sender]['phase'] = self.env.now  # ← keep phase fresh
+            self.neighborTable[sender]['phase'] = self.env.now  # keep phase fresh
             self.neighborTable[sender]['current_x'] = msg['current_x']
             self.neighborTable[sender]['last_time'] = msg['slot']
         elif not cleanDiscovery:
+            # print('colls')
             self.collisions += 1
 
     def hasDiscoveredAllNeighbors(self):
@@ -919,6 +938,7 @@ class LCGNode2(LCGNode):
         self.latency = 10_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
         self.DCUpdates = []
@@ -1023,6 +1043,7 @@ class LCGNode3(LCGNode):
         self.latency = 10_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
         self.DCUpdates = []

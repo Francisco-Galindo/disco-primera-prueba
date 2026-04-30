@@ -16,7 +16,7 @@ dc = int(sys.argv[2]) / 100
 trials = int(sys.argv[3])
 
 T = 100
-alpha = 0.0078125
+alpha = 2**-5
 print(numNodes, dc, trials)
 
 L = 1
