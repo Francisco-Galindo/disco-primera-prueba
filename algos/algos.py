@@ -47,6 +47,8 @@ class SimEnvironment:
             "unilateraldiscoveries": [],
             "accumDiscoveries": [],
             "accumCollisions": [],
+
+            "history": [],
             "DCAvg": [],
         }
         self._env = simpy.Environment()
@@ -147,6 +149,10 @@ class SimEnvironment:
         # self._results["accumCollisions"] = accumColls
         # self._results["DCAvg"] = DCAvg
 
+        self._results["history"] = [(i, x, y) for node in self._nodes for i, (x, y) in enumerate(zip(node._collisionMem, node._cleanDiscoveryMem), start=1)]
+
+
+
         self._results["latency"] = latency
         self._results["first-node-latency"] = firstNode.latency - self._startTime
         for latency in latencies:
@@ -215,6 +221,11 @@ class Test:
             writer.writeheader()
             writer.writerow(datapoint)
 
+    def appendDatapoint(self, datapoint, label):
+        os.makedirs(f"./exp-data/{self.name}", exist_ok=True)
+        with open(f'./exp-data/{self.name}/{self.numNodes}-nodes-{label}.data', 'a') as f:
+            f.write(','.join(str(n) for n in datapoint) + '\n')
+
     def run(self):
 
         print('start test run')
@@ -246,6 +257,11 @@ class Test:
                         accumCollisions[i] += v
                     for i, v in enumerate(el["DCAvg"]):
                         DCAvg[i] += v / self.numTests
+
+
+                    for datapoint in el["history"]:
+                        self.appendDatapoint(datapoint, 'history')
+
 
             # self.latencyCDF[algorithm["name"]] = getCDF(latencyDist, self.numTests)
 

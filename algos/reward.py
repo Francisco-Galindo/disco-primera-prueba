@@ -49,6 +49,8 @@ class RewardNode(Node):
         self.DCUpdates = []
         self.finalDC = 0
 
+        self.cycleCount = 0
+
         self._turnedOn = False
         self._slotOffset = slotOffset
         self._alignmentOffset = alignmentOffset
@@ -87,6 +89,7 @@ class RewardNode(Node):
         return 2 / self._m
 
     def stop(self):
+        # print('stopping', self._cleanDiscoveryMem)
         self._shouldStop = True
 
     @property
@@ -169,6 +172,7 @@ class RewardNode(Node):
             return
 
         cleanDiscovery = cleanEnd and cleanStart
+
         newDiscovery = cleanDiscovery and sender not in self._discovered
         if newDiscovery:
             now = self.env.now
@@ -190,9 +194,11 @@ class RewardNode(Node):
         elif cleanDiscovery:
             # print("clean", self.env.now)
             self.cleanDiscoveries += 1
+            self.cleanDiscoveriesT += 1
         elif not cleanDiscovery:
             # print("collision", self.env.now)
             self.collisions += 1
+            self.collisionsT += 1
             # self._collisionTimes.append(math.ceil(self.env.now))
 
     def hasDiscoveredAllNeighbors(self):
@@ -241,6 +247,14 @@ class RewardNode(Node):
         self._cycleJustStarted = True
 
         if self.env.now > self._simStartTime:
+            # Save datapoints
+            # TODO
+            self._collisionMem.append(self.cleanDiscoveriesT)
+            self._cleanDiscoveryMem.append(self.collisionsT)
+            self.cleanDiscoveriesT = 0
+            self.collisionsT = 0
+            # print('hola')
+
             self.updateDutyCycle()
             self.DCUpdates.append((round(self.env.now), self._DC))
 
@@ -659,6 +673,9 @@ class RewardStaticNode(RewardNode):
         self.latency = 10_000_000_000
         self.collisions = 0
         self.cleanDiscoveries = 0
+        self.collisionsT = 0
+        self.cleanDiscoveriesT = 0
+
         self.emptySlots = 0
         self.numNeighbors = numNeighbors
         self.lastListenSartTime = 0
@@ -1314,7 +1331,6 @@ class LCGNode5(LCGNode):
                     shift = (self.id % self.numNeighbors) + 1
                     collision, culprit = self.checkNeighborCollisions(self.slot)
                     if not collision:
-
                         start_delayed(self.env, self.activeSlotSequence(), shift)
                 else:
                     self.env.process(self.activeSlotSequence())
