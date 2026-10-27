@@ -56,8 +56,19 @@ print("Loading dataset...")
 df = load_dataset()
 print(f"Loaded {len(df)} total samples.")
 
-X = df[['dc', 'alpha', 't', 'periodCounter', 'collisions', 'discoveries']].values
+
+# After loading your DataFrame `df`:
+X_raw = df[['dc', 'alpha', 't', 'periodCounter', 'collisions', 'discoveries']]
+
+# Automatically filter out any columns that have zero variance (are constant)
+non_constant_cols = [col for col in X_raw.columns if X_raw[col].std() > 0]
+print(f"Keeping features with variance: {non_constant_cols}")
+
+X = X_raw[non_constant_cols].values
 y = df['nodes'].values
+
+# X = df[['dc', 'alpha', 't', 'periodCounter', 'collisions', 'discoveries']].values
+# y = df['nodes'].values
 
 # 2. Shuffle securely with a fixed seed
 np.random.seed(42)
