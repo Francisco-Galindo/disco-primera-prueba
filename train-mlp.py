@@ -60,10 +60,22 @@ print(f"Loaded {len(df)} total samples.")
 X = df[['dc', 'alpha', 't', 'periodCounter', 'collisions', 'discoveries']].values
 y = df['nodes'].values
 
-# Train/Test Split
-split_idx = int(len(X) * 0.8)
-X_train, X_test = X[:split_idx], X[split_idx:]
-y_train, y_test = y[:split_idx], y[split_idx:]
+# Assuming X and y are already loaded as NumPy arrays
+assert len(X) == len(y), "X and y must have the same length"
+
+# Generate a shuffled array of indices
+indices = np.arange(len(X))
+np.random.seed(42)  # Set seed for reproducibility
+np.random.shuffle(indices)
+
+# Apply the shuffled indices to both X and y
+X_shuffled = X[indices]
+y_shuffled = y[indices]
+
+# Now perform your 80/20 split safely
+split_idx = int(len(X_shuffled) * 0.8)
+X_train, X_test = X_shuffled[:split_idx], X_shuffled[split_idx:]
+y_train, y_test = y_shuffled[:split_idx], y_shuffled[split_idx:]
 
 # 2. Scale features manually using training stats (saves mean/std for deployment)
 X_mean = X_train.mean(axis=0)
