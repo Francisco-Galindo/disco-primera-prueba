@@ -1349,11 +1349,10 @@ class RewardMLPNodeFactory(NodeFactory):
         self.startDC = startDC
         self.alpha = alpha
 
-        # print("Factory loading shared model and lookup assets into memory...")
+        print("Factory loading Keras model, scalers, and lookup table into memory...")
 
-        # 1. Load TFLite model once as raw bytes (avoids disk reads per node)
-        with open('node_predictor.tflite', 'rb') as f:
-            self.model_content = f.read()
+        # 1. Load the Keras model once in the factory
+        self.model = tf.keras.models.load_model('node_predictor_model.keras')
 
         # 2. Load scalers once
         scalers = np.load('scaler_params.npz')
@@ -1362,12 +1361,11 @@ class RewardMLPNodeFactory(NodeFactory):
         self.y_mean = scalers['y_mean']
         self.y_std = scalers['y_std']
 
-        # 3. Load the pre-computed optimal DC lookup table once
+        # 3. Load the pre-computed optimal DC lookup table
         with open('optimal_dc_table.json', 'r') as f:
             self.dc_table = {int(k): v for k, v in json.load(f).items()}
 
     def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
-        # Pass the pre-loaded shared assets to the node offspring
         return RewardMLPNode(
             env=env,
             mesgPipe=mesgPipe,
@@ -1377,7 +1375,7 @@ class RewardMLPNodeFactory(NodeFactory):
             alpha=self.alpha,
             id=id,
             numNeighbors=numNeighbors,
-            model_content=self.model_content,
+            model=self.model,
             X_mean=self.X_mean,
             X_std=self.X_std,
             y_mean=self.y_mean,
@@ -1390,18 +1388,13 @@ class RewardMLPNodeFactory(NodeFactory):
         return "Reward MLP"
 
 
-class RewardMLPNode(RewardStaticNode):
+class RewardMLPNode(StaticDCNode):
     def __init__(self, env, mesgPipe, slotOffset, startDC, alignmentOffset, alpha, id, numNeighbors,
-                 model_content, X_mean, X_std, y_mean, y_std, dc_table):
+                 model, X_mean, X_std, y_mean, y_std, dc_table):
         super().__init__(env, mesgPipe, slotOffset, startDC, alignmentOffset, alpha, id, numNeighbors)
 
-        # Initialize an isolated TFLite interpreter from the factory's pre-loaded bytes (ultra-fast, no disk access)
-        self.interpreter = tf.lite.Interpreter(model_content=model_content)
-        self.interpreter.allocate_tensors()
-        self.input_details = self.interpreter.get_input_details()
-        self.output_details = self.interpreter.get_output_details()
-
-        # Assign shared references for scalers and lookup table
+        # Reference the shared Keras model and scalers passed from the factory
+        self.model = model
         self.X_mean = X_mean
         self.X_std = X_std
         self.y_mean = y_mean
@@ -1417,19 +1410,18 @@ class RewardMLPNode(RewardStaticNode):
         # 2. Scale features
         scaled_features = (raw_features - self.X_mean) / self.X_std
 
-        # 3. Predict nodes using private TFLite interpreter
-        self.interpreter.set_tensor(self.input_details[0]['index'], scaled_features)
-        self.interpreter.invoke()
-        pred_scaled = self.interpreter.get_tensor(self.output_details[0]['index'])[0][0]
+        # 3. Predict nodes using Keras model inference (using standard model.predict or __call__)
+        pred_scaled = self.model(scaled_features, training=False).numpy()[0][0]
 
         # Inverse-transform to real node count
         n_hat = int(round((pred_scaled * self.y_std) + self.y_mean))
 
-        # 4. Instant O(1) lookup for optimal DC using the preloaded table
+        # 4. Instant O(1) lookup using the preloaded table with boundary clamping
         min_n = min(self.dc_table.keys())
         max_n = max(self.dc_table.keys())
-        n_hat = max(min(n_hat, max_n), min_n)
-        self._DC = self.dc_table[n_hat]
+        n_clamped = max(min_n, min(n_hat, max_n))
+
+        self._DC = self.dc_table[n_clamped]
 
         # 5. Increment period counter
         self.period_counter += 1
