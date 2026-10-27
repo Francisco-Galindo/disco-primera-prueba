@@ -20,7 +20,7 @@ def parse_folder_params(folder_name):
     }
 
 
-def load_dataset(base_dir="sims/exp-data"):
+def load_dataset(base_dir="exp-data"):
     data_rows = []
     for folder_path in glob.glob(os.path.join(base_dir, "reward-static-*")):
         folder_name = os.path.basename(folder_path)
