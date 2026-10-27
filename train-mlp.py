@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
-
+from tensorflow.keras.optimizers import Adam
 
 def parse_folder_params(folder_name):
     dc_match = re.search(r'([\d\.]+)-dc', folder_name)
@@ -18,7 +18,6 @@ def parse_folder_params(folder_name):
         'alpha': float(alpha_match.group(1)) if alpha_match else 0.0,
         't': float(t_match.group(1)) if t_match else 0.0
     }
-
 
 def load_dataset(base_dir="exp-data"):
     data_rows = []
@@ -52,59 +51,90 @@ def load_dataset(base_dir="exp-data"):
                             continue
     return pd.DataFrame(data_rows)
 
-
 # 1. Load Data
+print("Loading dataset...")
 df = load_dataset()
 print(f"Loaded {len(df)} total samples.")
 
 X = df[['dc', 'alpha', 't', 'periodCounter', 'collisions', 'discoveries']].values
 y = df['nodes'].values
 
-# Assuming X and y are already loaded as NumPy arrays
-assert len(X) == len(y), "X and y must have the same length"
-
-# Generate a shuffled array of indices
+# 2. Shuffle securely with a fixed seed
+np.random.seed(42)
 indices = np.arange(len(X))
-np.random.seed(42)  # Set seed for reproducibility
 np.random.shuffle(indices)
-
-# Apply the shuffled indices to both X and y
 X_shuffled = X[indices]
 y_shuffled = y[indices]
 
-# Now perform your 80/20 split safely
+# 3. Train/Test Split (80% train, 20% test)
 split_idx = int(len(X_shuffled) * 0.8)
 X_train, X_test = X_shuffled[:split_idx], X_shuffled[split_idx:]
 y_train, y_test = y_shuffled[:split_idx], y_shuffled[split_idx:]
 
-# 2. Scale features manually using training stats (saves mean/std for deployment)
+# 4. Scale Features (X) and Target (y) STRICTLY on training data
 X_mean = X_train.mean(axis=0)
 X_std = X_train.std(axis=0)
+y_mean = y_train.mean()
+y_std = y_train.std()
+
 X_train_scaled = (X_train - X_mean) / X_std
 X_test_scaled = (X_test - X_mean) / X_std
 
-# Save scaler parameters so you can use them on your embedded device
-np.savez('scaler_params.npz', mean=X_mean, std=X_std)
+y_train_scaled = (y_train - y_mean) / y_std
+y_test_scaled = (y_test - y_mean) / y_std
 
-# 3. Build Tiny MLP Model
+# Save scalers and test set for future inspection
+np.savez('scaler_params.npz',
+         X_mean=X_mean, X_std=X_std,
+         y_mean=y_mean, y_std=y_std)
+np.savez('test_set.npz', X_test=X_test, y_test=y_test)
+
+# 5. Build Tiny MLP Model
 model = Sequential([
     Dense(16, activation='relu', input_shape=(6,)),
     Dense(8, activation='relu'),
     Dense(1) # Linear output for node prediction
 ])
 
-model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mae'])
 
-# 4. Train
-model.fit(X_train_scaled, y_train, epochs=20, batch_size=32, validation_split=0.2)
+# 6. Train Model
+print("Training model...")
+model.fit(
+    X_train_scaled, y_train_scaled,
+    epochs=40,
+    batch_size=32,
+    validation_split=0.2,
+    verbose=1
+)
 
-# 5. Save for local machine testing (.keras or .h5 format)
+# 7. Evaluate on Untouched Test Set (Inverse transforming predictions back to real scale)
+print("\n--- Evaluating on Untouched Test Set ---")
+predictions_scaled = model.predict(X_test_scaled, verbose=0)
+predictions = (predictions_scaled.flatten() * y_std) + y_mean
+
+mse = np.mean((y_test - predictions) ** 2)
+mae = np.mean(np.abs(y_test - predictions))
+
+print(f"Test Mean Squared Error (MSE): {mse:.4f}")
+print(f"Test Mean Absolute Error (MAE): {mae:.4f}")
+
+# Print sample comparisons
+print("\n--- Sample Predictions vs Actual Nodes ---")
+print(f"{'Actual Nodes':<15} | {'Predicted Nodes':<15} | {'Absolute Error':<15}")
+print("-" * 51)
+for i in range(10):
+    actual = y_test[i]
+    pred = predictions[i]
+    error = abs(actual - pred)
+    print(f"{actual:<15} | {pred:<15.2f} | {error:<15.2f}")
+
+# 8. Save Models (.keras and .tflite)
 model.save('node_predictor_model.keras')
-print("Model saved locally as 'node_predictor_model.keras'")
+print("\nModel saved locally as 'node_predictor_model.keras'")
 
-# 6. Convert and Save to TensorFlow Lite for Embedded Deployment
 converter = tf.lite.TFLiteConverter.from_keras_model(model)
-converter.optimizations = [tf.lite.Optimize.DEFAULT_WEIGHTS] # Quantize to save space
+converter.optimizations = [tf.lite.Optimize.DEFAULT_WEIGHTS]
 tflite_model = converter.convert()
 
 with open('node_predictor.tflite', 'wb') as f:
