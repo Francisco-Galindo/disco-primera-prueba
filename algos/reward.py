@@ -7,7 +7,8 @@ import numpy as np
 from simpy.util import start_delayed
 from algos.node import Node, NodeFactory
 from typing import Dict, TypedDict, Set, List
-from operator import add
+import tensorflow as tf
+import json
 
 
 class Discovery(TypedDict):
@@ -248,15 +249,14 @@ class RewardNode(Node):
 
         if self.env.now > self._simStartTime:
             # Save datapoints
-            # TODO
             self._collisionMem.append(self.cleanDiscoveriesT)
             self._cleanDiscoveryMem.append(self.collisionsT)
-            self.cleanDiscoveriesT = 0
-            self.collisionsT = 0
-            # print('hola')
 
             self.updateDutyCycle()
             self.DCUpdates.append((round(self.env.now), self._DC))
+
+            self.cleanDiscoveriesT = 0
+            self.collisionsT = 0
 
         # self._DC = max(0.01, self._DC)
         # self._DC = min(0.15, self._DC)
@@ -1342,3 +1342,94 @@ class LCGNode5(LCGNode):
         self._discoveredTimes.sort()
         self._collisionTimes.sort()
         self.DCUpdates.sort()
+
+
+class RewardMLPNodeFactory(NodeFactory):
+    def __init__(self, startDC=0.05, alpha=0.0546875) -> None:
+        self.startDC = startDC
+        self.alpha = alpha
+
+        # print("Factory loading shared model and lookup assets into memory...")
+
+        # 1. Load TFLite model once as raw bytes (avoids disk reads per node)
+        with open('node_predictor.tflite', 'rb') as f:
+            self.model_content = f.read()
+
+        # 2. Load scalers once
+        scalers = np.load('scaler_params.npz')
+        self.X_mean = scalers['X_mean']
+        self.X_std = scalers['X_std']
+        self.y_mean = scalers['y_mean']
+        self.y_std = scalers['y_std']
+
+        # 3. Load the pre-computed optimal DC lookup table once
+        with open('optimal_dc_table.json', 'r') as f:
+            self.dc_table = {int(k): v for k, v in json.load(f).items()}
+
+    def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
+        # Pass the pre-loaded shared assets to the node offspring
+        return RewardMLPNode(
+            env=env,
+            mesgPipe=mesgPipe,
+            slotOffset=slotOffset,
+            startDC=self.startDC,
+            alignmentOffset=alignmentOffset,
+            alpha=self.alpha,
+            id=id,
+            numNeighbors=numNeighbors,
+            model_content=self.model_content,
+            X_mean=self.X_mean,
+            X_std=self.X_std,
+            y_mean=self.y_mean,
+            y_std=self.y_std,
+            dc_table=self.dc_table
+        )
+
+    @property
+    def nodeTypeName(self) -> str:
+        return "Reward MLP"
+
+
+class RewardMLPNode(RewardStaticNode):
+    def __init__(self, env, mesgPipe, slotOffset, startDC, alignmentOffset, alpha, id, numNeighbors,
+                 model_content, X_mean, X_std, y_mean, y_std, dc_table):
+        super().__init__(env, mesgPipe, slotOffset, startDC, alignmentOffset, alpha, id, numNeighbors)
+
+        # Initialize an isolated TFLite interpreter from the factory's pre-loaded bytes (ultra-fast, no disk access)
+        self.interpreter = tf.lite.Interpreter(model_content=model_content)
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()
+        self.output_details = self.interpreter.get_output_details()
+
+        # Assign shared references for scalers and lookup table
+        self.X_mean = X_mean
+        self.X_std = X_std
+        self.y_mean = y_mean
+        self.y_std = y_std
+        self.dc_table = dc_table
+
+        self.period_counter = 1
+
+    def updateDutyCycle(self):
+        # 1. Gather telemetry
+        raw_features = np.array([[self._DC, self.period_counter, self.collisionsT, self.cleanDiscoveriesT]], dtype=np.float32)
+
+        # 2. Scale features
+        scaled_features = (raw_features - self.X_mean) / self.X_std
+
+        # 3. Predict nodes using private TFLite interpreter
+        self.interpreter.set_tensor(self.input_details[0]['index'], scaled_features)
+        self.interpreter.invoke()
+        pred_scaled = self.interpreter.get_tensor(self.output_details[0]['index'])[0][0]
+
+        # Inverse-transform to real node count
+        n_hat = int(round((pred_scaled * self.y_std) + self.y_mean))
+
+        # 4. Instant O(1) lookup for optimal DC using the preloaded table
+        min_n = min(self.dc_table.keys())
+        max_n = max(self.dc_table.keys())
+        n_hat = max(min(n_hat, max_n), min_n)
+        self._DC = self.dc_table[n_hat]
+
+        # 5. Increment period counter
+        self.period_counter += 1
