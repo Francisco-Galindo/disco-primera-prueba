@@ -1345,23 +1345,26 @@ class LCGNode5(LCGNode):
 
 
 class RewardMLPNodeFactory(NodeFactory):
-    def __init__(self, startDC=0.05, alpha=0.0546875) -> None:
+    def __init__(self, startDC=0.05, alpha=0.0546875, max_dc_change=0.1) -> None:
         self.startDC = startDC
         self.alpha = alpha
+        self.max_dc_change = max_dc_change
 
-        print("Factory loading Keras model, scalers, and lookup table into memory...")
+        model = tf.keras.models.load_model('node_predictor_model.keras')
 
-        # 1. Load the Keras model once in the factory
-        self.model = tf.keras.models.load_model('node_predictor_model.keras')
+        # Extract weights and biases for the 3 layers
+        weights = model.get_weights()
+        self.w1, self.b1 = weights[0], weights[1]
+        self.w2, self.b2 = weights[2], weights[3]
+        self.w3, self.b3 = weights[4], weights[5]
 
-        # 2. Load scalers once
         scalers = np.load('scaler_params.npz')
         self.X_mean = scalers['X_mean']
         self.X_std = scalers['X_std']
         self.y_mean = scalers['y_mean']
         self.y_std = scalers['y_std']
 
-        # 3. Load the pre-computed optimal DC lookup table
+        # Load  DC lookup table
         with open('optimal_dc_table.json', 'r') as f:
             self.dc_table = {int(k): v for k, v in json.load(f).items()}
 
@@ -1375,12 +1378,15 @@ class RewardMLPNodeFactory(NodeFactory):
             alpha=self.alpha,
             id=id,
             numNeighbors=numNeighbors,
-            model=self.model,
+            w1=self.w1, b1=self.b1,
+            w2=self.w2, b2=self.b2,
+            w3=self.w3, b3=self.b3,
             X_mean=self.X_mean,
             X_std=self.X_std,
             y_mean=self.y_mean,
             y_std=self.y_std,
-            dc_table=self.dc_table
+            dc_table=self.dc_table,
+            max_dc_change=self.max_dc_change
         )
 
     @property
@@ -1388,40 +1394,55 @@ class RewardMLPNodeFactory(NodeFactory):
         return "Reward MLP"
 
 
-class RewardMLPNode(StaticDCNode):
+class RewardMLPNode(RewardStaticNode):
     def __init__(self, env, mesgPipe, slotOffset, startDC, alignmentOffset, alpha, id, numNeighbors,
-                 model, X_mean, X_std, y_mean, y_std, dc_table):
+                 w1, b1, w2, b2, w3, b3, X_mean, X_std, y_mean, y_std, dc_table, max_dc_change):
         super().__init__(env, mesgPipe, slotOffset, startDC, alignmentOffset, alpha, id, numNeighbors)
 
-        # Reference the shared Keras model and scalers passed from the factory
-        self.model = model
+        self.w1, self.b1 = w1, b1
+        self.w2, b2 = w2, b2
+        self.w3, self.b3 = w3, b3
+
         self.X_mean = X_mean
         self.X_std = X_std
         self.y_mean = y_mean
         self.y_std = y_std
         self.dc_table = dc_table
+        self.max_dc_change = max_dc_change
 
         self.period_counter = 1
 
+    def predict_numpy(self, scaled_features):
+        """Lightning-fast pure NumPy forward pass for the 16 -> 8 -> 1 MLP"""
+        # Layer 1 (ReLU)
+        h1 = np.maximum(0, np.dot(scaled_features, self.w1) + self.b1)
+        # Layer 2 (ReLU)
+        h2 = np.maximum(0, np.dot(h1, self.w2) + self.b2)
+        # Output Layer (Linear)
+        out = np.dot(h2, self.w3) + self.b3
+        return out[0]
+
     def updateDutyCycle(self):
-        # 1. Gather telemetry
+        # Match exact feature shape used during training (e.g., [dc, periodCounter, collisions, discoveries])
         raw_features = np.array([[self._DC, self.period_counter, self.collisionsT, self.cleanDiscoveriesT]], dtype=np.float32)
 
-        # 2. Scale features
         scaled_features = (raw_features - self.X_mean) / self.X_std
-
-        # 3. Predict nodes using Keras model inference (using standard model.predict or __call__)
-        pred_scaled = self.model(scaled_features, training=False).numpy()[0][0]
-
-        # Inverse-transform to real node count
+        pred_scaled = self.predict_numpy(scaled_features)
         n_hat = int(round((pred_scaled * self.y_std) + self.y_mean))
 
-        # 4. Instant O(1) lookup using the preloaded table with boundary clamping
         min_n = min(self.dc_table.keys())
         max_n = max(self.dc_table.keys())
         n_clamped = max(min_n, min(n_hat, max_n))
 
-        self._DC = self.dc_table[n_clamped]
+        target_dc = self.dc_table[n_clamped]
 
-        # 5. Increment period counter
+        diff = target_dc - self._DC
+        if abs(diff) > self.max_dc_change:
+            # Step incrementally toward the target
+            self._DC += np.sign(diff) * self.max_dc_change
+        else:
+            self._DC = target_dc
+
+        self._DC = np.clip(self._DC, 0.01, 0.99)
+
         self.period_counter += 1
