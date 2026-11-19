@@ -149,7 +149,9 @@ class SimEnvironment:
         # self._results["accumCollisions"] = accumColls
         # self._results["DCAvg"] = DCAvg
 
-        self._results["history"] = [(i, x, y) for node in self._nodes for i, (x, y) in enumerate(zip(node._collisionMem, node._cleanDiscoveryMem), start=1)]
+        # DCUpdates holds (time, DC-after-update) per cycle, appended in the same block as the two mems
+        self._results["history"] = [(i, x, y, dc) for node in self._nodes for i, (x, y, (_, dc)) in enumerate(zip(node._collisionMem, node._cleanDiscoveryMem, node.DCUpdates), start=1)]
+        self._results["dcHistory"] = [[dc for _, dc in node.DCUpdates] for node in self._nodes]
 
 
 
@@ -174,6 +176,7 @@ class Test:
         self.discoveryProportionResults = {}
         self.collisionResults = {}
         self.DCAvgResults = {}
+        self.dcSamples = {}
         self.maxTime = maxTime
         self.numNodes = numNodes
         self.algorithms = algorithms
@@ -238,6 +241,9 @@ class Test:
             avgCleanDiscoveries = 0
             avgEmptySlots = 0
             finalDC = 0
+            dcSum = defaultdict(float)
+            dcCount = defaultdict(int)
+            allNodeDC = []
 
             with Pool(max(1, os.cpu_count()-1)) as p:
                 jobOutput = p.map(self.runSingleTest, [algorithm] * self.numTests)
@@ -262,6 +268,17 @@ class Test:
                     for datapoint in el["history"]:
                         self.appendDatapoint(datapoint, 'history')
 
+                    for nodeDC in el["dcHistory"]:
+                        allNodeDC.append(nodeDC)
+                        for period, dc in enumerate(nodeDC, start=1):
+                            dcSum[period] += dc
+                            dcCount[period] += 1
+
+            # mean DC per period over all nodes/runs still active in that period
+            self.DCAvgResults[algorithm["name"]] = [dcSum[p] / dcCount[p] for p in range(1, max(dcCount, default=0) + 1)]
+            # DC trajectories of 10 randomly chosen nodes (over all runs) for plotting
+            for k, nodeDC in enumerate(random.sample(allNodeDC, min(10, len(allNodeDC)))):
+                self.dcSamples[f'{algorithm["name"]}-node{k}'] = nodeDC
 
             # self.latencyCDF[algorithm["name"]] = getCDF(latencyDist, self.numTests)
 
@@ -293,3 +310,9 @@ class Test:
         # self.writeResultToFile(f'./discovery-data/{self.name}-discoveryProportion-{self.numNodes}-nodes.tsv', self.discoveryProportionResults, "discovery_proportion", self.maxTime)
         # self.writeResultToFile(f'./discovery-data/{self.name}-collisions.tsv', self.collisionResults, "collisions", self.maxTime)
         # self.writeResultToFile(f'./discovery-data/{self.name}-DC-{self.numNodes}-nodes.tsv', self.DCAvgResults, "DC-avg", self.maxTime)
+
+        # DC history (row 0 = first period); series of different length are padded with empty cells
+        for label, series in (("dc-avg", self.DCAvgResults), ("dc-samples", self.dcSamples)):
+            length = max((len(v) for v in series.values()), default=0)
+            padded = {k: list(v) + [''] * (length - len(v)) for k, v in series.items()}
+            self.writeResultToFile(f'./exp-data/{self.name}/{self.numNodes}-nodes-{label}.tsv', padded, "period", length)

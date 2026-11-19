@@ -1423,7 +1423,7 @@ class RewardMLPNode(RewardStaticNode):
         return out[0]
 
     def updateDutyCycle(self):
-        # Match exact feature shape used during training (e.g., [dc, periodCounter, collisions, discoveries])
+        # Match exact feature shape used during training ([dc, periodCounter, collisions, discoveries])
         raw_features = np.array([[self._DC, self.period_counter, self.collisionsT, self.cleanDiscoveriesT]], dtype=np.float32)
 
         scaled_features = (raw_features - self.X_mean) / self.X_std
