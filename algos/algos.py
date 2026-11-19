@@ -137,9 +137,12 @@ class SimEnvironment:
         empties_per_node = [(node.emptySlots) for node in self._nodes]
         avg_empties = sum(empties_per_node) / len(empties_per_node) if empties_per_node else 0
 
-        finalDC_per_node = [(node.finalDC) for node in self._nodes]
+        # only nodes that finished discovery have a meaningful finalDC (unfinished ones keep 0)
+        finished_nodes = [node for node in self._nodes if node.latency < 1_000_000_000]
 
-        self._results["finalDC"] = sum(finalDC_per_node) / self._N
+        # sum over finished nodes (not a mean); Test.run divides by the total number of finished nodes
+        self._results["finalDC"] = sum(node.finalDC for node in finished_nodes)
+        self._results["finished"] = len(finished_nodes)
         self._results["avgCollisions"] = avg_colls
         self._results["avgCleanDiscoveries"] = avg_clean
         self._results["avgEmptySlots"] = avg_empties
@@ -170,6 +173,7 @@ class Test:
         self.firstNodeLatencyDist = {}
         self.latencyDist = {}
         self.finalDC = {}
+        self.unfinished = {}
         self.avgCollisions = {}
         self.avgCleanDiscoveries = {}
         self.avgEmptySlots = {}
@@ -240,7 +244,8 @@ class Test:
             avgCollisions = 0
             avgCleanDiscoveries = 0
             avgEmptySlots = 0
-            finalDC = 0
+            finalDCSum = 0
+            finishedCount = 0
             dcSum = defaultdict(float)
             dcCount = defaultdict(int)
             allNodeDC = []
@@ -253,10 +258,11 @@ class Test:
                     for slot, freq in el["latencies"].items():
                         latencyDist[slot] += freq
                     # collisions += el["collisions"] / self.numTests
-                    avgCollisions = el["avgCollisions"] / self.numTests
-                    avgCleanDiscoveries = el["avgCleanDiscoveries"] / self.numTests
-                    avgEmptySlots = el["avgEmptySlots"] / self.numTests
-                    finalDC += el["finalDC"] / self.numTests
+                    avgCollisions += el["avgCollisions"] / self.numTests
+                    avgCleanDiscoveries += el["avgCleanDiscoveries"] / self.numTests
+                    avgEmptySlots += el["avgEmptySlots"] / self.numTests
+                    finalDCSum += el["finalDC"]
+                    finishedCount += el["finished"]
                     for i, v in enumerate(el["accumDiscoveries"]):
                         accumDiscoveries[i] += v
                     for i, v in enumerate(el["accumCollisions"]):
@@ -282,7 +288,9 @@ class Test:
 
             # self.latencyCDF[algorithm["name"]] = getCDF(latencyDist, self.numTests)
 
-            self.finalDC[algorithm["name"]] = finalDC
+            # mean DC over nodes that actually finished (nan if none did), and the share that never finished
+            self.finalDC[algorithm["name"]] = finalDCSum / finishedCount if finishedCount else float('nan')
+            self.unfinished[algorithm["name"]] = 1 - finishedCount / (self.numTests * self.numNodes)
             self.avgCollisions[algorithm["name"]] = avgCollisions
             self.avgCleanDiscoveries[algorithm["name"]] = avgCleanDiscoveries
             self.avgEmptySlots[algorithm["name"]] = avgEmptySlots
@@ -291,6 +299,7 @@ class Test:
             self.latencyDist[algorithm["name"]] = latencyDist
 
             self.writeSingleDatapoint(self.finalDC, 'final-dc')
+            self.writeSingleDatapoint(self.unfinished, 'unfinished')
 
             self.writeSingleDatapoint(self.avgCollisions, 'avg-collisions')
             self.writeSingleDatapoint(self.avgCleanDiscoveries, 'avg-clean-discoveries')
