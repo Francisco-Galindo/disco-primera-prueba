@@ -9,6 +9,7 @@ from algos.node import Node, NodeFactory
 from typing import Dict, TypedDict, Set, List
 import tensorflow as tf
 import json
+from collections import deque
 
 
 class Discovery(TypedDict):
@@ -1400,7 +1401,7 @@ class RewardMLPNode(RewardStaticNode):
         super().__init__(env, mesgPipe, slotOffset, startDC, alignmentOffset, alpha, id, numNeighbors)
 
         self.w1, self.b1 = w1, b1
-        self.w2, b2 = w2, b2
+        self.w2, self.b2 = w2, b2
         self.w3, self.b3 = w3, b3
 
         self.X_mean = X_mean
@@ -1420,7 +1421,8 @@ class RewardMLPNode(RewardStaticNode):
         h2 = np.maximum(0, np.dot(h1, self.w2) + self.b2)
         # Output Layer (Linear)
         out = np.dot(h2, self.w3) + self.b3
-        return out[0]
+        # return out[0]
+        return out.item()
 
     def updateDutyCycle(self):
         # Match exact feature shape used during training ([dc, periodCounter, collisions, discoveries])
@@ -1439,6 +1441,115 @@ class RewardMLPNode(RewardStaticNode):
         diff = target_dc - self._DC
         if abs(diff) > self.max_dc_change:
             # Step incrementally toward the target
+            self._DC += np.sign(diff) * self.max_dc_change
+        else:
+            self._DC = target_dc
+
+        self._DC = np.clip(self._DC, 0.01, 0.99)
+
+        self.period_counter += 1
+
+
+class RewardMLP2NodeFactory(RewardMLPNodeFactory):
+    """Like RewardMLPNodeFactory, but the node-count estimate is filtered over time:
+    lower bound from discovered neighbors -> median of last median_k estimates
+    -> running mean (gain 1/k, floored at gain_floor) after a warm-up of `warmup` periods."""
+
+    def __init__(self, startDC=0.05, alpha=0.0546875, max_dc_change=0.1,
+                 median_k=3, warmup=3, gain_floor=0.05, n_offset=1, max_period=None) -> None:
+        super().__init__(startDC, alpha, max_dc_change)
+        self.median_k = median_k
+        self.warmup = warmup
+        self.gain_floor = gain_floor
+        self.n_offset = n_offset      # n counts nodes incl. self -> n >= len(discovered) + 1
+        self.max_period = max_period  # cap on the period_counter feature (e.g. training max); None = no cap
+
+    def produce(self, env, mesgPipe: simpy.Store, slotOffset=0, alignmentOffset=0, id=0, numNeighbors=0) -> Node:
+        return RewardMLP2Node(
+            env=env,
+            mesgPipe=mesgPipe,
+            slotOffset=slotOffset,
+            startDC=self.startDC,
+            alignmentOffset=alignmentOffset,
+            alpha=self.alpha,
+            id=id,
+            numNeighbors=numNeighbors,
+            w1=self.w1, b1=self.b1,
+            w2=self.w2, b2=self.b2,
+            w3=self.w3, b3=self.b3,
+            X_mean=self.X_mean,
+            X_std=self.X_std,
+            y_mean=self.y_mean,
+            y_std=self.y_std,
+            dc_table=self.dc_table,
+            max_dc_change=self.max_dc_change,
+            median_k=self.median_k,
+            warmup=self.warmup,
+            gain_floor=self.gain_floor,
+            n_offset=self.n_offset,
+            max_period=self.max_period
+        )
+
+    @property
+    def nodeTypeName(self) -> str:
+        return "Reward MLP2"
+
+
+class RewardMLP2Node(RewardMLPNode):
+    def __init__(self, median_k=3, warmup=3, gain_floor=0.05, n_offset=1, max_period=None, **kwargs):
+        super().__init__(**kwargs)
+        # self.b2 = kwargs["b2"]  # RewardMLPNode.__init__ never sets self.b2
+
+        self.warmup = warmup
+        self.gain_floor = gain_floor
+        self.n_offset = n_offset
+        self.max_period = max_period
+
+        self._nWindow = deque(maxlen=median_k)
+        self._nSmooth = None
+        self._nCount = 0
+        self.nLog = []  # (raw n_hat, n used for the table lookup) per period
+
+    def updateDutyCycle(self):
+        period = self.period_counter if self.max_period is None else min(self.period_counter, self.max_period)
+        raw_features = np.array([[self._DC, period, self.collisionsT, self.cleanDiscoveriesT]], dtype=np.float32)
+
+        scaled_features = (raw_features - self.X_mean) / self.X_std
+        pred_scaled = self.predict_numpy(scaled_features)
+        n_raw = float(np.squeeze(pred_scaled * self.y_std + self.y_mean))
+
+        # we know at least these many nodes exist
+        lower = len(self._discovered) + self.n_offset
+        n_bounded = max(n_raw, lower)
+
+        # median over the last few bounded estimates
+        self._nWindow.append(n_bounded)
+        n_est = float(np.median(self._nWindow))
+
+        # running mean after warm-up: gain 1/k
+        if self.period_counter > self.warmup:
+            self._nCount += 1
+            if self._nSmooth is None:
+                self._nSmooth = n_est
+            else:
+                gain = max(1.0 / self._nCount, self.gain_floor)
+                self._nSmooth += gain * (n_est - self._nSmooth)
+            n_est = self._nSmooth
+
+        # bound again
+        n_est = max(n_est, lower)
+        if self._nSmooth is not None:
+            self._nSmooth = n_est
+        self.nLog.append((n_raw, n_est))
+
+        min_n = min(self.dc_table.keys())
+        max_n = max(self.dc_table.keys())
+        n_clamped = max(min_n, min(int(round(n_est)), max_n))
+
+        target_dc = self.dc_table[n_clamped]
+
+        diff = target_dc - self._DC
+        if abs(diff) > self.max_dc_change:
             self._DC += np.sign(diff) * self.max_dc_change
         else:
             self._DC = target_dc
